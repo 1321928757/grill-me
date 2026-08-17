@@ -21,7 +21,7 @@ concurrency:
 
 jobs:
   publish:
-    if: github.repository == 'NanmiCoder/grill-me'
+    if: github.repository == 'shironghe/grill-me'
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository

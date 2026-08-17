@@ -4,7 +4,7 @@ description: 开发、维护和验证 grill-me DSH 插件的执行型 Skill。�
 metadata:
   version: "0.1.0"
   date: "2026-08-17"
-  reference: "https://github.com/NanmiCoder/grill-me"
+  reference: "https://github.com/shironghe/grill-me"
 ---
 
 # grill-me 插件开发

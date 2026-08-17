@@ -29,10 +29,10 @@
     "email": "relakkes@gmail.com",
     "url": "https://github.com/NanmiCoder"
   },
-  "homepage": "https://github.com/NanmiCoder/grill-me#readme",
+  "homepage": "https://github.com/shironghe/grill-me#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/NanmiCoder/grill-me.git"
+    "url": "git+https://github.com/shironghe/grill-me.git"
   },
   "keywords": [
     "dsh",
