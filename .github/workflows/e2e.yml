@@ -1,0 +1,49 @@
+name: Real E2E
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    env:
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+          package-manager-cache: false
+
+      - name: Set up package managers
+        run: npm install --global npm@11.19.0 pnpm@10.33.0
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Skip when DEEPSEEK_API_KEY is missing
+        if: env.DEEPSEEK_API_KEY == ''
+        run: echo "DEEPSEEK_API_KEY is not configured; real e2e skipped."
+
+      - name: Run real e2e
+        if: env.DEEPSEEK_API_KEY != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/grill-me-e2e && cd /tmp/grill-me-e2e
+          npx -y -p @deepseek-ai/dsh dsh plugin --profile headless add "$GITHUB_WORKSPACE"
+          npx -y -p @deepseek-ai/dsh dsh --profile headless --dump-config | grep "id: grill-me"
+          npx -y -p @deepseek-ai/dsh dsh --profile headless "用户想做一个'智能体系统'。先用 grill-me 拷打边界，再输出明确需求"
+          test -d .grill-me

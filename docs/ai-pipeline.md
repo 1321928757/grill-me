@@ -31,4 +31,4 @@
 - 提交钩子：仓库已提交 `.githooks/pre-push`，执行 `git config core.hooksPath .githooks` 后，任何 push 前都会自动跑 `pnpm typecheck && pnpm build && pnpm verify`。
 - GitHub CLI：`winget install --id GitHub.cli`，然后 `gh auth login`。
 - 一键建仓与开 PR：`powershell -File scripts/setup-github.ps1`。
-- 真实 e2e：安装 DSH CLI 并配置 `DEEPSEEK_API_KEY` 后运行 `powershell -File scripts/e2e.ps1`。
+- 真实 e2e：安装 DSH CLI 并配置 `DEEPSEEK_API_KEY` 后运行 `powershell -File scripts/e2e.ps1`，或在仓库配置 `DEEPSEEK_API_KEY` secret 后由 `Real E2E` 工作流自动执行（无 key 时自动跳过）。
