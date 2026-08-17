@@ -9,10 +9,10 @@ Grill the user through design-tree frontier rounds until a query's boundaries ar
 | Capability | What it changes |
 | --- | --- |
 | Design tree | Every decision is a node; answers unlock dependent decisions, leaving no hidden assumptions |
-| Question cards | Every frontier round and the settle confirmation are forced through the DSH Web GUI question-card UI; plain-text questions are gone |
+| Question cards | Every frontier round is forced through the DSH Web GUI question-card UI; settle confirmation is a plain-text question (no card); plain-text frontier questions are gone |
 | Frontier rounds | Only ask decisions whose prerequisites are settled, all in one round, each with a recommended answer marked 推荐 |
 | Self-served facts | The agent looks up what it can from the environment; only decisions belong to the user |
-| Boundary spec | Once the frontier is empty and the user confirms, the agent settles an explicit boundary before acting |
+| Boundary spec | Once the frontier is empty and the user confirms via plain text, the agent settles an explicit boundary before acting |
 | Persistence and audit | Trees persist under `.grill-me/`; archives keep full history; session events replay |
 
 ## How it works
@@ -34,11 +34,11 @@ Data flow: tool execution → disk state (source of truth) → session log event
 | Tool | Purpose |
 | --- | --- |
 | `grill_begin` | Start a design-tree session for one query |
-| `grill_question` | Add a decision; it enters the frontier once prerequisites are settled (optionally with 2-4 `options` for a multi-option card) |
-| `grill_ask` | Render the whole frontier as question cards and record answers automatically; with an empty frontier, render the settle-confirmation card (approval freezes the boundary) |
+| `grill_question` | Add a decision; it enters the frontier once prerequisites are settled (optionally with at least `optionCount` `options` for a multi-option card) |
+| `grill_ask` | Render the whole frontier as question cards and record answers automatically; with an empty frontier and a `boundary`, return the boundary text for plain-text confirmation (no card) |
 | `grill_answer` | Record the user answer, freeze the decision, expand the frontier (text-fallback rounds) |
 | `grill_frontier` | Inspect the tree, frontier, settled decisions, and boundary status |
-| `grill_settle` | Freeze the boundary spec once the frontier is empty and the user confirms (text-fallback path) |
+| `grill_settle` | Freeze the boundary spec once the frontier is empty and the user confirms in plain text |
 | `grill_archive` | Close and archive the session, keeping the full design tree |
 | `grill_docs_read` | Read the current CONTEXT.md / CONTEXT-MAP.md / docs/adr/ state and next ADR number (grill-with-docs) |
 | `grill_docs_update` | Persist a glossary term or an ADR to disk (grill-with-docs) |
@@ -76,9 +76,11 @@ Defaults work without extra setup:
 - id: grill-me
   config:
     stateDir: .grill-me
+    optionCount: 3
 ```
 
-`stateDir` names the state directory under the workspace.
+- `stateDir` names the state directory under the workspace.
+- `optionCount` (default `3`, minimum `3`, no upper bound) is the minimum number of options a question card should carry; the agent provides at least that many choices per question.
 
 ## Command
 
@@ -96,12 +98,12 @@ In the web GUI the command is intercepted by the client (visible in the "/" menu
 ## Protocol
 
 1. After the user invokes `/grill-me [query]`, the agent must call `grill_begin` and build a design tree; it may not skip grilling because the query looks crisp.
-2. Each round calls `grill_ask` to render the whole frontier as DSH question cards (question id = decision id, 2-4 options with the recommended answer first and marked 推荐, custom-answer field, skip support); the card is the ONLY allowed question presentation — never plain text.
+2. Each round calls `grill_ask` to render the whole frontier as DSH question cards (question id = decision id, at least `optionCount` options with the recommended answer first and marked 推荐, custom-answer field, skip support); the card is the ONLY allowed presentation for frontier rounds — never ask frontier questions as plain text.
 3. `grill_ask` records answers into the design tree automatically and returns the next frontier; never ask questions whose prerequisites are still open.
 4. Facts are the agent's job; only decisions belong to the user.
-5. When the frontier is empty, the agent writes the explicit boundary spec and calls `grill_ask` again with the `boundary` — it renders a settle-confirmation card; nothing executes until the user approves and the boundary is frozen.
+5. When the frontier is empty, the agent writes the explicit boundary spec and calls `grill_ask` again with the `boundary` — it returns the boundary text WITHOUT rendering a card; the agent asks the user in plain text to confirm, and only after approval calls `grill_settle` to freeze the boundary. Nothing executes before that.
 6. After execution, the agent calls `grill_archive` to keep the full tree.
-7. In environments without a question-card UI (headless CLI), `grill_ask` fails with a `user-questions-unavailable` error; fall back to plain-text questions and record answers with `grill_answer` / `grill_settle`.
+7. In environments without a question-card UI (headless CLI), `grill_ask` fails with a `user-questions-unavailable` error for frontier rounds; fall back to plain-text questions and record answers with `grill_answer` / `grill_settle`.
 
 `/grill-with-docs` adds a docs protocol: during the rounds, check the current glossary and ADR numbering with `grill_docs_read`, and persist resolved terms (kind=term) or architecture decisions (kind=adr) with `grill_docs_update` — CONTEXT.md and `docs/adr/000N-*.md` under the workspace docs root, following CONTEXT-FORMAT and ADR-FORMAT (see [docs/grill-with-docs.md](./docs/grill-with-docs.md)). Docs writes require an open session and `docsEnabled` (default true); `/grill-me` never writes docs.
 
@@ -119,7 +121,7 @@ The matrix covers packaging contract, pure design-tree rules, tool lifecycle, co
 
 - One query maps to one session; archive the old session before starting the same query again.
 - State is file-backed and serialized within one DSH process; concurrent processes editing the same session are not coordinated.
-- Question cards require the `ctx.userQuestions` capability (composed by the DSH base bundle) and a Web GUI UI provider; headless environments fall back to text (protocol step 7).
+- Question cards require the `ctx.userQuestions` capability (composed by the DSH base bundle) and a Web GUI UI provider; headless environments fall back to text for frontier rounds (protocol step 7). Settle confirmation is always plain text.
 - Models may skip tool ceremony (forgetting `grill_settle`); treat `grill_frontier` / persisted state as truth.
 - Free private repositories cannot use GitHub branch protection; making the repo public enables it.
 

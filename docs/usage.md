@@ -18,13 +18,14 @@
 
 ### 提问呈现
 
-- **问题卡片（框框）是唯一提问形式**：frontier 每轮与 settle 确认都经 `grill_ask` 走 DSH Web GUI 的结构化问题卡片（`ctx.userQuestions.ask()` 渲染，与 `ask_user_question` 同款：标题、编号选项、「推荐」徽标、自定义输入、跳过/提交）。
+- **frontier 走问题卡片（框框）**：每轮 frontier 经 `grill_ask` 走 DSH Web GUI 的结构化问题卡片（`ctx.userQuestions.ask()` 渲染，与 `ask_user_question` 同款：标题、编号选项、「推荐」徽标、自定义输入、跳过/提交）。
+- **settle 确认走纯文本**：frontier 为空时 `grill_ask` 带 `boundary` 返回边界文本（不渲染确认卡片），agent 用纯文本提问确认，用户批准后调用 `grill_settle` 固化。
 - 卡片按能力接缝渲染，不依赖 preset 是否组合 `tool-ask-user`。
-- 无 UI provider（headless CLI / 纯终端）时 `grill_ask` 抛 `user-questions-unavailable` 结构化错误，模型回退纯文本提问，答案经 `grill_answer` / `grill_settle` 记录。
+- 无 UI provider（headless CLI / 纯终端）时 `grill_ask` 对 frontier 轮抛 `user-questions-unavailable` 结构化错误，模型回退纯文本提问，答案经 `grill_answer` / `grill_settle` 记录。
 
 ### 设计树模型
 
-- **决策（decision）**：一个必须由用户明确的问题，含 id、question、recommendation、prerequisites、可选 options（2~4 个备选，首个即推荐答案）、answer、answeredAt。
+- **决策（decision）**：一个必须由用户明确的问题，含 id、question、recommendation、prerequisites、可选 options（至少 `optionCount` 个备选（默认 3、无上限），首个即推荐答案）、answer、answeredAt。
 - **frontier**：前置均已答、自己尚未回答的决策集合；每轮只问 frontier。
 - **会话状态机**：`open → settled → archived`；settle 要求 frontier 为空且 boundary 非空，archive 后不可再修改。
 
@@ -40,8 +41,8 @@
 | 工具 | 作用 |
 | --- | --- |
 | `grill_begin` | 建立会话；query 折叠成 session id；同名 query 已存在时拒绝 |
-| `grill_question` | 添加决策；前置必须已存在且已答，否则拒绝并列出未决前置；可传 2~4 个 `options`（首个必须是推荐答案）渲染多选项卡片 |
-| `grill_ask` | 把整轮 frontier 渲染为问题卡片（每题 2~4 个选项、推荐答案居首带「推荐」徽标，另有自定义输入与跳过），自动把答案写入设计树并返回新 frontier；frontier 为空且带 `boundary` 时渲染 settle 确认卡片，批准即固化边界（拒绝则返回 `modification` 保持 open） |
+| `grill_question` | 添加决策；前置必须已存在且已答，否则拒绝并列出未决前置；可传至少 `optionCount` 个 `options`（首个必须是推荐答案，无上限）渲染多选项卡片 |
+| `grill_ask` | 把整轮 frontier 渲染为问题卡片（每题至少 `optionCount` 个选项、推荐答案居首带「推荐」徽标，另有自定义输入与跳过），自动把答案写入设计树并返回新 frontier；frontier 为空且带 `boundary` 时返回边界文本（不渲染卡片），由 `grill_settle` 固化 |
 | `grill_answer` | 记录答案；已答决策冻结，迟到的重复答案被拒绝（文本兜底轮次用） |
 | `grill_frontier` | 返回 status、frontier、settled、boundary（boundary 仅 settle 后出现） |
 | `grill_settle` | frontier 为空且 boundary 非空时固化边界规格（文本兜底路径） |
@@ -68,12 +69,12 @@
 ## 使用协议
 
 1. 用户输入 `/grill-me [query]` 后，agent 强制调用 `grill_begin` 建立设计树；不得因 query 清晰而跳过。
-2. 每轮调用 `grill_ask` 把整轮 frontier 渲染为问题卡片（每题 id 即决策 id、每题 2~4 个选项且推荐答案居首带「推荐」徽标、支持自定义输入与跳过）；卡片是唯一允许的提问形式，禁止纯文本提问。
+2. 每轮调用 `grill_ask` 把整轮 frontier 渲染为问题卡片（每题 id 即决策 id、每题至少 `optionCount` 个选项且推荐答案居首带「推荐」徽标、支持自定义输入与跳过）；frontier 提问时卡片是唯一允许的提问形式，禁止纯文本提问。
 3. `grill_ask` 自动把答案写入设计树并返回新 frontier；不提前问依赖未决的问题。
 4. 需要查证的事实由 agent 自己完成（文件、工具、环境），只有决策属于用户。
-5. frontier 为空时，agent 写出显式边界规格并以 `boundary` 参数再次调用 `grill_ask`：卡片批准后边界固化（`status: settled`），拒绝则返回修改意见（`modification`）供 agent 修订后重试；边界固化前不得执行 query。
+5. frontier 为空时，agent 写出显式边界规格并以 `boundary` 参数再次调用 `grill_ask`：它返回边界文本（不渲染确认卡片），agent 用纯文本向用户提问确认；用户批准后调用 `grill_settle` 固化边界（`status: settled`），之前不得执行 query。
 6. 执行完成后调用 `grill_archive` 归档完整设计树。
-7. 无问题卡片 UI 的环境（headless CLI / 纯终端 / 未组合 user-questions）下 `grill_ask` 返回 `user-questions-unavailable` 结构化错误，回退纯文本提问，答案经 `grill_answer` / `grill_settle` 记录。
+7. 无问题卡片 UI 的环境（headless CLI / 纯终端 / 未组合 user-questions）下 `grill_ask` 对 frontier 轮返回 `user-questions-unavailable` 结构化错误，回退纯文本提问，答案经 `grill_answer` / `grill_settle` 记录。
 
 ### grill-with-docs 文档协议（/grill-with-docs 触发）
 
@@ -94,6 +95,7 @@
     stateDir: .grill-me
     docsEnabled: true
     docsDir: ''
+    optionCount: 3
 ```
 
 | 字段 | 默认值 | 说明 |
@@ -102,6 +104,7 @@
 | `promptSectionOrder` | `118` | system prompt 段顺序 |
 | `docsEnabled` | `true` | `/grill-with-docs` 是否允许写文档；`/grill-me` 始终不写 |
 | `docsDir` | `''` | 文档根相对工作区；`''` = 工作区根 |
+| `optionCount` | `3` | 每题问题卡片至少携带的选项数（最小 3、无上限） |
 
 ## 已知限制
 
@@ -115,7 +118,7 @@
 
 - 离线与生命周期：`pnpm typecheck && pnpm build && pnpm verify`。
   - `verify.mjs`：打包契约、设计树纯规则（含多选项归一）、grill-with-docs 纯规则（ADR 编号/格式、CONTEXT-FORMAT 生成与 upsert、多上下文判定）、session.json 落盘/归档。
-  - `lifecycle-verify.mjs`：驱动编译后的 7 个 grill_* 工具走完 begin → question → answer → settle → archive，断言会话事件；覆盖 `grill_ask` 卡片流（多选项卡片、settle 确认、拒绝、跳过、无 provider/无服务回退）、`grill_docs_read`/`grill_docs_update` 工具流（术语写入、ADR 编号递增、未知会话/缺字段拒绝、事件发射）与 `/grill-me`、`/grill-with-docs` 命令注册、steer 载荷、裸命令与清理。
+  - `lifecycle-verify.mjs`：驱动编译后的 7 个 grill_* 工具走完 begin → question → answer → settle → archive，断言会话事件；覆盖 `grill_ask` 卡片流（多选项卡片、settle 文本流（返回边界文本不渲染卡片、`grill_settle` 固化）、跳过、无 provider/无服务回退）、`grill_docs_read`/`grill_docs_update` 工具流（术语写入、ADR 编号递增、未知会话/缺字段拒绝、事件发射）与 `/grill-me`、`/grill-with-docs` 命令注册、steer 载荷、裸命令与清理。
   - `stress-verify.mjs`：重复 begin、未知会话、跨会话隔离、并发回答、settle 后迟到写入、重复 archive、grill_ask 未知会话/空 frontier/多选项 frontier/无 provider、grill_docs 隔离与未知会话。
   - `verify:skill`：`.dsh/skills` 镜像与源 skill 一致。
 - 组合验证：`dsh plugin --profile headless add .` 后 `dsh --profile headless --dump-config | grep "id: grill-me"`。

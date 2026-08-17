@@ -9,7 +9,7 @@
 | 能力 | 带来的变化 |
 | --- | --- |
 | 设计树 | 每个决策是节点，答案解锁后续决策，不留隐藏假设 |
-| 问题卡片（框框） | 每轮 frontier 与 settle 确认强制以 DSH Web GUI 结构化问题卡片呈现，废除纯文本提问 |
+| 问题卡片（框框） | 每轮 frontier 强制以 DSH Web GUI 结构化问题卡片呈现；settle 确认走纯文本提问（不渲染卡片），废除纯文本 frontier 提问 |
 | frontier 轮次 | 每轮只问前置已决的问题，一次问完，推荐答案带「推荐」徽标 |
 | 事实自主查询 | agent 自己查环境事实，不反问用户可查的信息 |
 | 边界规格 | frontier 清空且用户确认后输出显式 boundary，之后才执行 |
@@ -34,11 +34,11 @@
 | 工具 | 作用 |
 | --- | --- |
 | `grill_begin` | 为一个 query 建立设计树会话，调用者成为持问者 |
-| `grill_question` | 添加一个决策；前置已决后进入 frontier（可带 2~4 个 `options` 渲染多选项卡片） |
-| `grill_ask` | 把整轮 frontier 渲染为问题卡片并自动记录答案；frontier 为空时渲染 settle 确认卡片（批准即固化边界） |
+| `grill_question` | 添加一个决策；前置已决后进入 frontier（可带至少 `optionCount` 个 `options` 渲染多选项卡片） |
+| `grill_ask` | 把整轮 frontier 渲染为问题卡片并自动记录答案；frontier 为空且带 `boundary` 时返回边界文本供纯文本确认（不渲染卡片） |
 | `grill_answer` | 记录用户答案，冻结该决策并展开 frontier（文本兜底轮次用） |
 | `grill_frontier` | 查看当前树、frontier、已决决策与边界状态 |
-| `grill_settle` | frontier 为空且用户确认后，固化边界规格（文本兜底路径） |
+| `grill_settle` | frontier 为空且用户纯文本确认后，固化边界规格 |
 | `grill_archive` | 结束并归档会话，完整设计树保留 |
 | `grill_docs_read` | 读当前 CONTEXT.md / CONTEXT-MAP.md / docs/adr/ 现状与下一个 ADR 编号（grill-with-docs） |
 | `grill_docs_update` | 把术语或 ADR 落盘（grill-with-docs） |
@@ -76,9 +76,10 @@ dsh web
 - id: grill-me
   config:
     stateDir: .grill-me
+    optionCount: 3
 ```
 
-`stateDir` 是工作区下的状态目录名，默认 `.grill-me`。
+`stateDir` 是工作区下的状态目录名，默认 `.grill-me`。`optionCount`（默认 `3`，最小 `3`，无上限）是每题问题卡片至少应携带的选项数，agent 每题至少提供该数量的备选。
 
 ## 命令
 
@@ -96,12 +97,12 @@ GUI 下命令被客户端拦截并出现在 "/" 菜单；headless/CLI 下未经�
 ## 使用协议
 
 1. 用户输入 `/grill-me [query]` 后，agent 强制调用 `grill_begin` 建立设计树；不得因 query 清晰而跳过。
-2. 每轮调用 `grill_ask` 把整轮 frontier 渲染为 DSH 问题卡片（每题 id 即决策 id、每题 2~4 个选项且推荐答案居首带「推荐」徽标、支持自定义输入与跳过）；问题卡片是唯一允许的提问形式，禁止纯文本提问。
+2. 每轮调用 `grill_ask` 把整轮 frontier 渲染为 DSH 问题卡片（每题 id 即决策 id、每题至少 `optionCount` 个选项且推荐答案居首带「推荐」徽标、支持自定义输入与跳过）；frontier 提问时卡片是唯一允许的提问形式，禁止纯文本提问。
 3. `grill_ask` 自动把答案写入设计树并返回新 frontier；不提前问依赖未决的问题。
 4. 需要查证的事实由 agent 自己完成，只有决策属于用户。
-5. frontier 为空时，agent 写出显式边界规格并再次调用 `grill_ask`（带 `boundary`）渲染 settle 确认卡片；用户批准后边界才固化，之前不得执行 query。
+5. frontier 为空时，agent 写出显式边界规格并再次调用 `grill_ask`（带 `boundary`）——它返回边界文本、不渲染确认卡片；agent 用纯文本向用户提问确认，用户批准后才调用 `grill_settle` 固化边界，之前不得执行 query。
 6. 执行完成后调用 `grill_archive` 归档完整设计树。
-7. 无问题卡片 UI 的环境（headless CLI）下 `grill_ask` 返回 `user-questions-unavailable` 错误，此时回退纯文本提问，答案经 `grill_answer` / `grill_settle` 记录。
+7. 无问题卡片 UI 的环境（headless CLI）下 `grill_ask` 对 frontier 轮次返回 `user-questions-unavailable` 错误，此时回退纯文本提问，答案经 `grill_answer` / `grill_settle` 记录。
 
 `/grill-with-docs` 额外执行文档协议：拷打过程中用 `grill_docs_read` 查看现有 CONTEXT.md 术语表与 ADR 编号，用 `grill_docs_update` 把结晶的术语（kind=term）或架构决策（kind=adr）落盘到工作区文档根下的 CONTEXT.md 与 `docs/adr/000N-*.md`，遵循 CONTEXT-FORMAT 与 ADR-FORMAT（见 [docs/grill-with-docs.md](./docs/grill-with-docs.md)）。写文档要求会话 open 且 `docsEnabled` 为 true（默认）；`/grill-me` 永不写文档。
 
