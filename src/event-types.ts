@@ -9,6 +9,12 @@ export interface GrillDecisionAnsweredData {
   readonly answer: string
 }
 
+export interface GrillFrontierAskedData {
+  readonly sessionId: string
+  readonly answers: readonly { readonly questionId: string; readonly answer: string }[]
+  readonly remaining: number
+}
+
 export interface GrillSessionSettledData {
   readonly sessionId: string
   readonly boundary: string
@@ -23,6 +29,7 @@ declare module '@deepseek-ai/dsh-session/types' {
   interface SessionEventMap {
     'grill-me/session-created': GrillSessionCreatedData
     'grill-me/decision-answered': GrillDecisionAnsweredData
+    'grill-me/frontier-asked': GrillFrontierAskedData
     'grill-me/session-settled': GrillSessionSettledData
     'grill-me/session-archived': GrillSessionArchivedData
   }

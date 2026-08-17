@@ -20,9 +20,10 @@ grill-me 是一个 DeepSeek Harness (DSH) 插件：当用户 query 边界模糊�
 
 - 拷打唯一入口是 `/grill-me` 命令（`/grill-me <query>` 或裸 `/grill-me` 拷打最近一条用户请求）；无自动触发，/grill-me 触发后强制走完设计树直到 settle。
 - 模糊 query 进入设计树：每个决策是树节点，答案会解锁后续决策。
-- 每轮只问 frontier（前置已决的决策），一次问完，每题带推荐答案。
+- 每轮只问 frontier（前置已决的决策），一次问完，推荐答案带「推荐」徽标。
+- **提问强制走卡片**：frontier 每轮与 settle 确认经 `grill_ask` 用 DSH Web GUI 问题卡片呈现（`ctx.userQuestions.ask()`），禁止纯文本提问；无 UI provider（headless）时 `grill_ask` 报 `user-questions-unavailable`，才回退文本（答案经 `grill_answer` / `grill_settle` 记录）。
 - 事实查询是 agent 的职责，不能反问用户；只有决策属于用户。
-- frontier 为空且用户确认后，才输出边界规格并继续执行。
+- frontier 为空且用户批准 settle 确认卡片后，才输出边界规格并继续执行。
 
 ## 工程约束
 

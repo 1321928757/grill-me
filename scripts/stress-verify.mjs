@@ -18,6 +18,10 @@ const workspace = await mkdtemp(join(tmpdir(), 'dsh-grill-me-stress-'))
 const stateRoot = join(workspace, '.grill-me')
 const definitions = new Map()
 
+const userQuestions = {
+  ask: async () => ({ answers: [] }),
+}
+
 const ctx = {
   effect(setup) {
     return setup()
@@ -31,10 +35,14 @@ const ctx = {
     return () => {}
   },
   logger: { debug() {}, warn() {} },
+  userQuestions,
 }
 registerGrillTools(ctx, { stateDir: '.grill-me' })
 
-const exec = { agent: { session: { header: { cwd: workspace }, append() {} } } }
+const exec = {
+  signal: new AbortController().signal,
+  agent: { session: { header: { cwd: workspace }, append() {} } },
+}
 
 let failures = 0
 function check(label, condition, detail = '') {
@@ -99,6 +107,29 @@ try {
   await call('grill_archive', { session_id: 'race' })
   check('archived session leaves no live state', await readSession(stateRoot, 'race') === undefined)
   await rejected('grill_archive', { session_id: 'race' }, 'repeated archive is rejected')
+
+  await rejected('grill_ask', { session_id: 'missing' }, 'grill_ask on an unknown session is rejected')
+
+  await call('grill_begin', { query: 'card idle' })
+  const idle = await call('grill_ask', { session_id: 'card-idle' })
+  check('grill_ask with an empty frontier and no boundary is a no-op', idle.remaining === 0 && idle.status === 'open')
+
+  await call('grill_begin', { query: 'card settle' })
+  await call('grill_question', { session_id: 'card-settle', question_id: 'scope', question: 'Scope?', recommendation: 'A' })
+  userQuestions.ask = async () => ({ answers: [{ id: 'scope', selected: ['A (Recommended)'] }] })
+  const cardRound = await call('grill_ask', { session_id: 'card-settle' })
+  check('grill_ask records and drains a single-decision frontier', cardRound.remaining === 0 && cardRound.answers.length === 1)
+  userQuestions.ask = async () => ({ answers: [{ id: 'settle-confirm', selected: ['确认，按此边界执行 (Recommended)'] }] })
+  const cardSettled = await call('grill_ask', { session_id: 'card-settle', boundary: 'card settle boundary' })
+  check('grill_ask settles through the confirmation card', cardSettled.status === 'settled' && cardSettled.boundary === 'card settle boundary')
+  await rejected('grill_ask', { session_id: 'card-settle', boundary: 'late' }, 'grill_ask on a settled session is rejected')
+
+  userQuestions.ask = async () => {
+    const error = new Error('no user-questions provider is registered')
+    error.code = 'NO_PROVIDER'
+    throw error
+  }
+  await rejected('grill_ask', { session_id: 'card-idle', boundary: 'x' }, 'grill_ask without a UI provider is rejected')
 } finally {
   await rm(workspace, { recursive: true, force: true })
 }
