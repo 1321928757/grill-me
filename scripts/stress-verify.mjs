@@ -9,6 +9,8 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { snapshotJsonValue } from '@deepseek-ai/dsh-session'
+import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
 import { registerGrillTools } from '../lib/tools.js'
 import { readSession } from '../lib/state.js'
 
@@ -44,7 +46,16 @@ function check(label, condition, detail = '') {
 async function call(name, args) {
   const definition = definitions.get(name)
   if (!definition) throw new Error(`missing tool ${name}`)
-  return definition.execute(args, exec)
+  const result = await definition.execute(args, exec)
+  const detached = snapshotJsonValue(result)
+  if (detached === undefined) {
+    throw new Error(`tool ${name} returned a non-lossless JSON value`)
+  }
+  const violations = validateJsonSchemaValue(definition.output.schema, detached, 'value')
+  if (violations.length > 0) {
+    throw new Error(`tool ${name} output violates its schema: ${violations.join('; ')}`)
+  }
+  return result
 }
 
 async function rejected(name, args, label) {

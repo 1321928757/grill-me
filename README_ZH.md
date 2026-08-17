@@ -2,7 +2,7 @@
 
 一句话，让模糊 query 先过拷打，再动手。
 
-`dsh-grill-me` 是 DeepSeek Harness 插件：当用户请求边界不清时，agent 把需求建成设计树，每轮把 frontier 问题一次问完并给出推荐答案，直到用户确认边界规格后才会继续执行。
+`dsh-grill-me` 是 DeepSeek Harness 插件：用户输入 `/grill-me`（唯一入口，无自动触发）后，agent 把需求建成设计树，每轮把 frontier 问题一次问完并给出推荐答案，直到用户确认边界规格后才会继续执行。
 
 ## 为什么需要 grill-me？
 
@@ -22,6 +22,7 @@
 | --- | --- |
 | `ctx.tools` 注册表 | 注册 6 个 `grill_*` 工具 |
 | `ctx.systemPrompt.section()` | 注册 "grill-me:usage" 协议段 |
+| `ctx.commands` 注册表 | 注册 `/grill-me` 宿主命令（GUI "/" 菜单可见、客户端拦截） |
 | 文件系统 | 状态持久化在 `<workspace>/.grill-me/<sessionId>/session.json` |
 
 数据链路：工具执行 → 磁盘状态（真相源）→ 会话日志事件（审计/重放）。
@@ -74,13 +75,24 @@ dsh web
 
 `stateDir` 是工作区下的状态目录名，默认 `.grill-me`。
 
+## 命令
+
+`/grill-me` 是拷打的唯一入口，模糊 query 不会自动进入设计树。
+
+| 用法 | 语义 |
+| --- | --- |
+| `/grill-me <query>` | 强制拷打该 query（即使看起来清晰，也必须走完整设计树流程） |
+| `/grill-me`（裸命令） | 强制拷打对话中最近一条用户请求 |
+
+GUI 下命令被客户端拦截并出现在 "/" 菜单；headless/CLI 下未经拦截的 `/grill-me` 行由同一份协议兜底，行为一致。
+
 ## 使用协议
 
-1. 用户给出模糊 query 时，agent 调用 `grill_begin` 建立设计树。
+1. 用户输入 `/grill-me [query]` 后，agent 强制调用 `grill_begin` 建立设计树；不得因 query 清晰而跳过。
 2. 每轮把 frontier 问题一次问完，每题附推荐答案；不提前问依赖未决的问题。
 3. 用户回答后调用 `grill_answer` 冻结决策，frontier 外扩，进入下一轮。
 4. 需要查证的事实由 agent 自己完成，只有决策属于用户。
-5. frontier 为空且用户确认后，调用 `grill_settle` 固化边界规格。
+5. frontier 为空且用户确认后，调用 `grill_settle` 固化边界规格；边界固化前不得执行 query。
 6. 执行完成后调用 `grill_archive` 归档完整设计树。
 
 ## 验证
