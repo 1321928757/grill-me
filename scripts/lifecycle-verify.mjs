@@ -12,9 +12,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { snapshotJsonValue } from '@deepseek-ai/dsh-session'
 import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
-import { GRILL_COMMAND, grillLine, registerGrillCommand } from '../lib/command.js'
+import { GRILL_COMMAND, GRILL_DOCS_COMMAND, grillDocsLine, grillLine, registerGrillCommand, registerGrillDocsCommand } from '../lib/command.js'
 import { registerGrillTools } from '../lib/tools.js'
 import { cardAnswerText, cardOptionsOf, stripRecommendedSuffix } from '../lib/tools.js'
+import { registerGrillDocsTools } from '../lib/docs.js'
 import { readSession } from '../lib/state.js'
 
 const workspace = await mkdtemp(join(tmpdir(), 'dsh-grill-me-lifecycle-'))
@@ -42,6 +43,7 @@ const ctx = {
   userQuestions,
 }
 registerGrillTools(ctx, { stateDir: '.grill-me' })
+registerGrillDocsTools(ctx, { stateDir: '.grill-me', docsDir: '', docsEnabled: true })
 
 const events = []
 const exec = {
@@ -322,6 +324,99 @@ try {
   await rm(cardWorkspace, { recursive: true, force: true })
 }
 
+// --- grill_docs tools ---
+
+console.log('\ngrill_docs tool verification')
+const docsWorkspace = await mkdtemp(join(tmpdir(), 'dsh-grill-me-docs-'))
+const docsStateRoot = join(docsWorkspace, '.grill-me')
+const docsExec = {
+  signal: new AbortController().signal,
+  agent: {
+    session: {
+      header: { cwd: docsWorkspace },
+      append(type, data) {
+        events.push({ type, data })
+      },
+    },
+  },
+}
+
+async function callDocs(name, args) {
+  const definition = definitions.get(name)
+  if (!definition) throw new Error(`missing tool ${name}`)
+  const result = await definition.execute(args, docsExec)
+  const detached = snapshotJsonValue(result)
+  if (detached === undefined) {
+    throw new Error(`tool ${name} returned a non-lossless JSON value`)
+  }
+  const violations = validateJsonSchemaValue(definition.output.schema, detached, 'value')
+  if (violations.length > 0) {
+    throw new Error(`tool ${name} output violates its schema: ${violations.join('; ')}`)
+  }
+  return result
+}
+
+async function rejectedDocs(name, args, label) {
+  try {
+    await callDocs(name, args)
+    check(label, false, 'expected the call to fail')
+  } catch {
+    check(label, true)
+  }
+}
+
+try {
+  await callDocs('grill_begin', { query: 'docs flow' })
+  const readEmpty = await callDocs('grill_docs_read', { session_id: 'docs-flow' })
+  check('grill_docs_read on a bare workspace reports single layout and no docs',
+    readEmpty.layout === 'single' && readEmpty.adrs.length === 0 && readEmpty.next_adr === 1 && !('context' in readEmpty))
+
+  const termWritten = await callDocs('grill_docs_update', {
+    session_id: 'docs-flow',
+    kind: 'term',
+    term: 'Order',
+    definition: 'A request to purchase.',
+    avoid: ['Purchase', 'transaction'],
+    name: 'Ordering',
+    description: 'Receives and tracks customer orders.',
+  })
+  check('grill_docs_update kind=term writes CONTEXT.md at the workspace root',
+    termWritten.kind === 'term' && termWritten.path === join(docsWorkspace, 'CONTEXT.md'))
+  const contextAfter = await readFile(join(docsWorkspace, 'CONTEXT.md'), 'utf8')
+  check('CONTEXT.md follows the CONTEXT-FORMAT', contextAfter.includes('# Ordering') && contextAfter.includes('**Order**:') && contextAfter.includes('_Avoid_: Purchase, transaction'))
+
+  const readAfterTerm = await callDocs('grill_docs_read', { session_id: 'docs-flow', scope: 'context' })
+  check('grill_docs_read scope=context returns the glossary', readAfterTerm.context?.includes('**Order**:') === true)
+
+  const adrWritten = await callDocs('grill_docs_update', {
+    session_id: 'docs-flow',
+    kind: 'adr',
+    title: 'Use Postgres for the write model',
+    body: 'The write model is event-sourced and projected into Postgres.',
+    status: 'accepted',
+    considered: ['MySQL', 'MongoDB'],
+  })
+  check('grill_docs_update kind=adr writes 0001-slug.md', adrWritten.kind === 'adr' && adrWritten.number === 1 && adrWritten.path.endsWith('0001-use-postgres-for-the-write-model.md'))
+  const readAdrs = await callDocs('grill_docs_read', { session_id: 'docs-flow', scope: 'adr' })
+  check('grill_docs_read scope=adr reports the ADR and next number', readAdrs.adrs.length === 1 && readAdrs.adrs[0]?.startsWith('0001-') && readAdrs.next_adr === 2)
+
+  const secondAdr = await callDocs('grill_docs_update', {
+    session_id: 'docs-flow',
+    kind: 'adr',
+    title: 'Manual SQL over ORM',
+    body: 'Manual SQL because the query shapes are too unusual for an ORM.',
+  })
+  check('second ADR increments the number', secondAdr.number === 2 && secondAdr.path.endsWith('0002-manual-sql-over-orm.md'))
+  check('docs-updated events emitted', events.filter(event => event.type === 'grill-me/docs-updated').length === 3)
+
+  await rejectedDocs('grill_docs_update', { session_id: 'missing', kind: 'term', term: 'X', definition: 'Y' }, 'grill_docs_update on an unknown session is rejected')
+  await rejectedDocs('grill_docs_update', { session_id: 'docs-flow', kind: 'term', term: 'X' }, 'grill_docs_update term without a definition is rejected')
+  await rejectedDocs('grill_docs_update', { session_id: 'docs-flow', kind: 'adr', title: 'X' }, 'grill_docs_update adr without a body is rejected')
+  await rejectedDocs('grill_docs_update', { session_id: 'docs-flow', kind: 'bogus' }, 'grill_docs_update with an unknown kind is rejected')
+} finally {
+  await rm(docsWorkspace, { recursive: true, force: true })
+}
+
 // --- /grill-me host command ---
 
 /** Stub cordis context whose `inject` child activates only when `commands` exists. */
@@ -397,6 +492,43 @@ console.log('\n/grill-me command verification')
   const absent = commandHarness(false)
   registerGrillCommand(absent.ctx)
   check('command stays unregistered without a commands service', absent.registered.size === 0)
+}
+
+console.log('\n/grill-with-docs command verification')
+{
+  const { ctx, registered, registerDisposers } = commandHarness(true)
+  registerGrillDocsCommand(ctx)
+  check('docs command registers alongside grill-me', registered.size === 1 && registered.has(GRILL_DOCS_COMMAND))
+  const definition = registered.get(GRILL_DOCS_COMMAND)
+  check('docs command exposes discovery metadata',
+    definition?.name === 'grill-with-docs'
+    && typeof definition?.description === 'string' && definition.description.length > 0
+    && definition?.input?.hint === '[query]')
+  check('grillDocsLine rebuilds the literal line',
+    grillDocsLine('  帮我做X') === '/grill-with-docs  帮我做X' && grillDocsLine('') === '/grill-with-docs')
+
+  const withQuery = agentWithSteer()
+  const queryResult = definition.handler({ agent: withQuery.agent, rawInput: '  帮我做X' })
+  check('with-query invocation returns success',
+    queryResult.kind === 'success' && queryResult.text === 'Grilling with docs: 帮我做X')
+  check('handler steers the literal docs command line',
+    withQuery.steered.length === 1
+    && withQuery.steered[0].content?.[0]?.text === '/grill-with-docs  帮我做X'
+    && withQuery.steered[0].source?.kind === 'user')
+
+  const bare = agentWithSteer()
+  const bareResult = definition.handler({ agent: bare.agent, rawInput: '' })
+  check('bare invocation returns success',
+    bareResult.kind === 'success' && bareResult.text === 'Grilling your latest request with docs.')
+  check('bare handler steers the bare docs command line',
+    bare.steered.length === 1 && bare.steered[0].content?.[0]?.text === '/grill-with-docs')
+
+  const noSteer = definition.handler({ agent: {}, rawInput: 'x' })
+  check('handler without an agent steer channel returns an error',
+    noSteer.kind === 'error' && typeof noSteer.text === 'string' && noSteer.text.length > 0)
+
+  registerDisposers[0]?.()
+  check('disposing the docs command child unregisters it', registered.size === 0)
 }
 
 if (failures > 0) {

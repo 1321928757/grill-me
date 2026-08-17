@@ -40,6 +40,8 @@
 | `grill_frontier` | 查看当前树、frontier、已决决策与边界状态 |
 | `grill_settle` | frontier 为空且用户确认后，固化边界规格（文本兜底路径） |
 | `grill_archive` | 结束并归档会话，完整设计树保留 |
+| `grill_docs_read` | 读当前 CONTEXT.md / CONTEXT-MAP.md / docs/adr/ 现状与下一个 ADR 编号（grill-with-docs） |
+| `grill_docs_update` | 把术语或 ADR 落盘（grill-with-docs） |
 
 ## 安装
 
@@ -80,12 +82,14 @@ dsh web
 
 ## 命令
 
-`/grill-me` 是拷打的唯一入口，模糊 query 不会自动进入设计树。
+`/grill-me` 是拷打的唯一入口，模糊 query 不会自动进入设计树；`/grill-with-docs` 跑同一强制流程，并在拷打过程中把领域模型沉淀为文档。
 
 | 用法 | 语义 |
 | --- | --- |
 | `/grill-me <query>` | 强制拷打该 query（即使看起来清晰，也必须走完整设计树流程） |
 | `/grill-me`（裸命令） | 强制拷打对话中最近一条用户请求 |
+| `/grill-with-docs <query>` | 强制拷打该 query，并在决策结晶时写 CONTEXT.md 术语表与 ADR |
+| `/grill-with-docs`（裸命令） | 强制拷打最近一条请求并写文档 |
 
 GUI 下命令被客户端拦截并出现在 "/" 菜单；headless/CLI 下未经拦截的 `/grill-me` 行由同一份协议兜底，行为一致。
 
@@ -98,6 +102,8 @@ GUI 下命令被客户端拦截并出现在 "/" 菜单；headless/CLI 下未经�
 5. frontier 为空时，agent 写出显式边界规格并再次调用 `grill_ask`（带 `boundary`）渲染 settle 确认卡片；用户批准后边界才固化，之前不得执行 query。
 6. 执行完成后调用 `grill_archive` 归档完整设计树。
 7. 无问题卡片 UI 的环境（headless CLI）下 `grill_ask` 返回 `user-questions-unavailable` 错误，此时回退纯文本提问，答案经 `grill_answer` / `grill_settle` 记录。
+
+`/grill-with-docs` 额外执行文档协议：拷打过程中用 `grill_docs_read` 查看现有 CONTEXT.md 术语表与 ADR 编号，用 `grill_docs_update` 把结晶的术语（kind=term）或架构决策（kind=adr）落盘到工作区文档根下的 CONTEXT.md 与 `docs/adr/000N-*.md`，遵循 CONTEXT-FORMAT 与 ADR-FORMAT（见 [docs/grill-with-docs.md](./docs/grill-with-docs.md)）。写文档要求会话 open 且 `docsEnabled` 为 true（默认）；`/grill-me` 永不写文档。
 
 ## 验证
 
@@ -124,6 +130,7 @@ pnpm verify
 | [使用指南](./docs/usage.md) | 架构、工具、协议、配置、限制与验证 |
 | [验证指南](./docs/verification-guide.md) | 离线、组合、真实 e2e 与验证清单 |
 | [实现说明](./docs/implementation.md) | grill-me 自身实现与维护指南 |
+| [grill-with-docs](./docs/grill-with-docs.md) | 从原版技能提取的 domain-modeling 文档能力（CONTEXT.md / ADR） |
 | [AI 流水线](./docs/ai-pipeline.md) | 人类只审查、agent 只实现的工作流 |
 
 ## 开发

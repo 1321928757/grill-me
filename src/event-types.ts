@@ -25,6 +25,13 @@ export interface GrillSessionArchivedData {
   readonly reason?: string
 }
 
+export interface GrillDocsUpdatedData {
+  readonly sessionId: string
+  readonly kind: 'term' | 'adr'
+  readonly path: string
+  readonly scope: string
+}
+
 declare module '@deepseek-ai/dsh-session/types' {
   interface SessionEventMap {
     'grill-me/session-created': GrillSessionCreatedData
@@ -32,5 +39,6 @@ declare module '@deepseek-ai/dsh-session/types' {
     'grill-me/frontier-asked': GrillFrontierAskedData
     'grill-me/session-settled': GrillSessionSettledData
     'grill-me/session-archived': GrillSessionArchivedData
+    'grill-me/docs-updated': GrillDocsUpdatedData
   }
 }

@@ -5,6 +5,9 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 /** The slash command name this plugin owns, without the leading slash. */
 export const GRILL_COMMAND = 'grill-me'
 
+/** The docs-sinking sibling command: same grill loop, plus domain-modeling. */
+export const GRILL_DOCS_COMMAND = 'grill-with-docs'
+
 const USAGE = 'Usage: /grill-me [<query>]'
 
 /**
@@ -18,8 +21,21 @@ export function grillLine(rawInput: string): string {
   return `/${GRILL_COMMAND}${rawInput}`
 }
 
+/** The literal `/grill-with-docs` line, for the docs-sinking sibling command. */
+export function grillDocsLine(rawInput: string): string {
+  return `/${GRILL_DOCS_COMMAND}${rawInput}`
+}
+
+interface GrillCommandSpec {
+  name: string
+  description: string
+  line: (rawInput: string) => string
+  usage: string
+  success: (query: string) => string
+}
+
 /**
- * Register the `/grill-me` host command. The handler never runs the design
+ * Register one `/grill-*` host command. The handler never runs the design
  * tree itself: it steers the literal command line back into the agent as a
  * user message, and the model runs the forced grill loop through the
  * `grill_*` tools, guided by the "grill-me:usage" prompt section. The
@@ -27,28 +43,48 @@ export function grillLine(rawInput: string): string {
  * assemblies without one still load the plugin (headless fallback is the
  * prompt protocol).
  */
-export function registerGrillCommand(ctx: Context): void {
+function registerGrillCommandSpec(ctx: Context, spec: GrillCommandSpec): void {
   ctx.inject(['commands'], (commandCtx) => {
     commandCtx.commands.register({
-      name: GRILL_COMMAND,
-      description: 'Force the grill-me workflow on a query',
+      name: spec.name,
+      description: spec.description,
       input: { hint: '[query]' },
       handler: (invocation: CommandInvocation): CommandResult => {
         if (typeof invocation.agent.steer !== 'function') {
-          return { kind: 'error', text: `grill-me: no agent channel to accept the request. ${USAGE}` }
+          return { kind: 'error', text: `${spec.name}: no agent channel to accept the request. ${spec.usage}` }
         }
         const query = invocation.rawInput.trim()
         invocation.agent.steer(createUserMessage({
-          content: [{ type: 'text', text: grillLine(invocation.rawInput) }],
+          content: [{ type: 'text', text: spec.line(invocation.rawInput) }],
           source: { kind: 'user' },
         }))
         return {
           kind: 'success',
-          text: query.length > 0
-            ? `Grilling: ${query}`
-            : 'Grilling your latest request.',
+          text: spec.success(query),
         }
       },
     })
+  })
+}
+
+/** Register the `/grill-me` pure-grilling command. */
+export function registerGrillCommand(ctx: Context): void {
+  registerGrillCommandSpec(ctx, {
+    name: GRILL_COMMAND,
+    description: 'Force the grill-me workflow on a query',
+    line: grillLine,
+    usage: USAGE,
+    success: query => query.length > 0 ? `Grilling: ${query}` : 'Grilling your latest request.',
+  })
+}
+
+/** Register the `/grill-with-docs` command: same loop, plus domain-modeling. */
+export function registerGrillDocsCommand(ctx: Context): void {
+  registerGrillCommandSpec(ctx, {
+    name: GRILL_DOCS_COMMAND,
+    description: 'Force the grill-me workflow on a query while writing CONTEXT.md glossary and ADRs',
+    line: grillDocsLine,
+    usage: 'Usage: /grill-with-docs [<query>]',
+    success: query => query.length > 0 ? `Grilling with docs: ${query}` : 'Grilling your latest request with docs.',
   })
 }
