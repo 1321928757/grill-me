@@ -46,7 +46,7 @@ dsh --profile headless "用户想做一个'智能体系统'。先用 grill-me �
 判定成功：
 
 - `.grill-me/<sessionId>/session.json` 存在且含设计树；
-- 会话日志含 `grill_*` 工具调用与 `grill-me/*` 事件；
+- 会话日志含 `tool/call` 的 `grill_*` 工具调用（`grill-me/*` 会话事件为尽力而为）；
 - 最终有 settled 边界规格（或按协议明确归档）。
 
 仓库级自动化：`.github/workflows/e2e.yml` 在配置 `DEEPSEEK_API_KEY` secret 后于 PR/手动触发时执行；无 key 自动跳过。
