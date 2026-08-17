@@ -24,7 +24,7 @@
 
 ### 设计树模型
 
-- **决策（decision）**：一个必须由用户明确的问题，含 id、question、recommendation、prerequisites、answer、answeredAt。
+- **决策（decision）**：一个必须由用户明确的问题，含 id、question、recommendation、prerequisites、可选 options（2~4 个备选，首个即推荐答案）、answer、answeredAt。
 - **frontier**：前置均已答、自己尚未回答的决策集合；每轮只问 frontier。
 - **会话状态机**：`open → settled → archived`；settle 要求 frontier 为空且 boundary 非空，archive 后不可再修改。
 
@@ -40,8 +40,8 @@
 | 工具 | 作用 |
 | --- | --- |
 | `grill_begin` | 建立会话；query 折叠成 session id；同名 query 已存在时拒绝 |
-| `grill_question` | 添加决策；前置必须已存在且已答，否则拒绝并列出未决前置 |
-| `grill_ask` | 把整轮 frontier 渲染为问题卡片（推荐答案为首个选项带「推荐」徽标，另有自定义输入与跳过），自动把答案写入设计树并返回新 frontier；frontier 为空且带 `boundary` 时渲染 settle 确认卡片，批准即固化边界（拒绝则返回 `modification` 保持 open） |
+| `grill_question` | 添加决策；前置必须已存在且已答，否则拒绝并列出未决前置；可传 2~4 个 `options`（首个必须是推荐答案）渲染多选项卡片 |
+| `grill_ask` | 把整轮 frontier 渲染为问题卡片（每题 2~4 个选项、推荐答案居首带「推荐」徽标，另有自定义输入与跳过），自动把答案写入设计树并返回新 frontier；frontier 为空且带 `boundary` 时渲染 settle 确认卡片，批准即固化边界（拒绝则返回 `modification` 保持 open） |
 | `grill_answer` | 记录答案；已答决策冻结，迟到的重复答案被拒绝（文本兜底轮次用） |
 | `grill_frontier` | 返回 status、frontier、settled、boundary（boundary 仅 settle 后出现） |
 | `grill_settle` | frontier 为空且 boundary 非空时固化边界规格（文本兜底路径） |
@@ -64,7 +64,7 @@
 ## 使用协议
 
 1. 用户输入 `/grill-me [query]` 后，agent 强制调用 `grill_begin` 建立设计树；不得因 query 清晰而跳过。
-2. 每轮调用 `grill_ask` 把整轮 frontier 渲染为问题卡片（每题 id 即决策 id、推荐答案为首个选项带「推荐」徽标、支持自定义输入与跳过）；卡片是唯一允许的提问形式，禁止纯文本提问。
+2. 每轮调用 `grill_ask` 把整轮 frontier 渲染为问题卡片（每题 id 即决策 id、每题 2~4 个选项且推荐答案居首带「推荐」徽标、支持自定义输入与跳过）；卡片是唯一允许的提问形式，禁止纯文本提问。
 3. `grill_ask` 自动把答案写入设计树并返回新 frontier；不提前问依赖未决的问题。
 4. 需要查证的事实由 agent 自己完成（文件、工具、环境），只有决策属于用户。
 5. frontier 为空时，agent 写出显式边界规格并以 `boundary` 参数再次调用 `grill_ask`：卡片批准后边界固化（`status: settled`），拒绝则返回修改意见（`modification`）供 agent 修订后重试；边界固化前不得执行 query。

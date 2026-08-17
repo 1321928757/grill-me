@@ -34,7 +34,7 @@
 | 工具 | 作用 |
 | --- | --- |
 | `grill_begin` | 为一个 query 建立设计树会话，调用者成为持问者 |
-| `grill_question` | 添加一个决策；前置已决后进入 frontier |
+| `grill_question` | 添加一个决策；前置已决后进入 frontier（可带 2~4 个 `options` 渲染多选项卡片） |
 | `grill_ask` | 把整轮 frontier 渲染为问题卡片并自动记录答案；frontier 为空时渲染 settle 确认卡片（批准即固化边界） |
 | `grill_answer` | 记录用户答案，冻结该决策并展开 frontier（文本兜底轮次用） |
 | `grill_frontier` | 查看当前树、frontier、已决决策与边界状态 |
@@ -92,7 +92,7 @@ GUI 下命令被客户端拦截并出现在 "/" 菜单；headless/CLI 下未经�
 ## 使用协议
 
 1. 用户输入 `/grill-me [query]` 后，agent 强制调用 `grill_begin` 建立设计树；不得因 query 清晰而跳过。
-2. 每轮调用 `grill_ask` 把整轮 frontier 渲染为 DSH 问题卡片（每题 id 即决策 id、推荐答案为首个选项并带「推荐」徽标、支持自定义输入与跳过）；问题卡片是唯一允许的提问形式，禁止纯文本提问。
+2. 每轮调用 `grill_ask` 把整轮 frontier 渲染为 DSH 问题卡片（每题 id 即决策 id、每题 2~4 个选项且推荐答案居首带「推荐」徽标、支持自定义输入与跳过）；问题卡片是唯一允许的提问形式，禁止纯文本提问。
 3. `grill_ask` 自动把答案写入设计树并返回新 frontier；不提前问依赖未决的问题。
 4. 需要查证的事实由 agent 自己完成，只有决策属于用户。
 5. frontier 为空时，agent 写出显式边界规格并再次调用 `grill_ask`（带 `boundary`）渲染 settle 确认卡片；用户批准后边界才固化，之前不得执行 query。

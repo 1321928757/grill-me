@@ -115,7 +115,7 @@ try {
   check('grill_ask with an empty frontier and no boundary is a no-op', idle.remaining === 0 && idle.status === 'open')
 
   await call('grill_begin', { query: 'card settle' })
-  await call('grill_question', { session_id: 'card-settle', question_id: 'scope', question: 'Scope?', recommendation: 'A' })
+  await call('grill_question', { session_id: 'card-settle', question_id: 'scope', question: 'Scope?', recommendation: 'A', options: ['A', 'B', 'C'] })
   userQuestions.ask = async () => ({ answers: [{ id: 'scope', selected: ['A (Recommended)'] }] })
   const cardRound = await call('grill_ask', { session_id: 'card-settle' })
   check('grill_ask records and drains a single-decision frontier', cardRound.remaining === 0 && cardRound.answers.length === 1)
@@ -123,6 +123,26 @@ try {
   const cardSettled = await call('grill_ask', { session_id: 'card-settle', boundary: 'card settle boundary' })
   check('grill_ask settles through the confirmation card', cardSettled.status === 'settled' && cardSettled.boundary === 'card settle boundary')
   await rejected('grill_ask', { session_id: 'card-settle', boundary: 'late' }, 'grill_ask on a settled session is rejected')
+
+  await call('grill_begin', { query: 'multi option' })
+  await call('grill_question', { session_id: 'multi-option', question_id: 'scope', question: 'Scope?', recommendation: 'A', options: ['A', 'B', 'C', 'D'] })
+  await call('grill_question', { session_id: 'multi-option', question_id: 'delivery', question: 'Delivery?', recommendation: 'Cloud', options: ['Cloud', 'On-prem'] })
+  userQuestions.ask = async (request) => {
+    check('multi-option frontier renders both decisions with their choices',
+      request.questions.length === 2
+      && request.questions[0]?.options?.length === 4
+      && request.questions[1]?.options?.length === 2)
+    return { answers: [
+      { id: 'scope', selected: ['B'] },
+      { id: 'delivery', selected: ['Cloud (Recommended)'] },
+    ] }
+  }
+  const multiRound = await call('grill_ask', { session_id: 'multi-option' })
+  check('multi-option answers record verbatim and stripped markers',
+    multiRound.remaining === 0
+    && multiRound.answers.length === 2
+    && multiRound.answers.some(answer => answer.id === 'scope' && answer.answer === 'B')
+    && multiRound.answers.some(answer => answer.id === 'delivery' && answer.answer === 'Cloud'))
 
   userQuestions.ask = async () => {
     const error = new Error('no user-questions provider is registered')

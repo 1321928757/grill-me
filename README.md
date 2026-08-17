@@ -34,7 +34,7 @@ Data flow: tool execution → disk state (source of truth) → session log event
 | Tool | Purpose |
 | --- | --- |
 | `grill_begin` | Start a design-tree session for one query |
-| `grill_question` | Add a decision; it enters the frontier once prerequisites are settled |
+| `grill_question` | Add a decision; it enters the frontier once prerequisites are settled (optionally with 2-4 `options` for a multi-option card) |
 | `grill_ask` | Render the whole frontier as question cards and record answers automatically; with an empty frontier, render the settle-confirmation card (approval freezes the boundary) |
 | `grill_answer` | Record the user answer, freeze the decision, expand the frontier (text-fallback rounds) |
 | `grill_frontier` | Inspect the tree, frontier, settled decisions, and boundary status |
@@ -92,7 +92,7 @@ In the web GUI the command is intercepted by the client (visible in the "/" menu
 ## Protocol
 
 1. After the user invokes `/grill-me [query]`, the agent must call `grill_begin` and build a design tree; it may not skip grilling because the query looks crisp.
-2. Each round calls `grill_ask` to render the whole frontier as DSH question cards (question id = decision id, recommended answer first and marked 推荐, custom-answer field, skip support); the card is the ONLY allowed question presentation — never plain text.
+2. Each round calls `grill_ask` to render the whole frontier as DSH question cards (question id = decision id, 2-4 options with the recommended answer first and marked 推荐, custom-answer field, skip support); the card is the ONLY allowed question presentation — never plain text.
 3. `grill_ask` records answers into the design tree automatically and returns the next frontier; never ask questions whose prerequisites are still open.
 4. Facts are the agent's job; only decisions belong to the user.
 5. When the frontier is empty, the agent writes the explicit boundary spec and calls `grill_ask` again with the `boundary` — it renders a settle-confirmation card; nothing executes until the user approves and the boundary is frozen.

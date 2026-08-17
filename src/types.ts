@@ -5,6 +5,8 @@ export interface GrillDecision {
   question: string
   recommendation: string
   prerequisites: string[]
+  /** Optional 2-4 choices rendered as a multi-option card; the first must equal `recommendation` and carries the 推荐 badge. */
+  options?: string[]
   answer?: string
   answeredAt?: number
 }

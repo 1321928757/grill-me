@@ -93,6 +93,7 @@ function decisionSummary(decision: GrillDecision): DecisionJson {
     question: decision.question,
     recommendation: decision.recommendation,
     prerequisites: decision.prerequisites,
+    options: decision.options ?? null,
     answer: decision.answer ?? null,
     answeredAt: decision.answeredAt ?? null,
   }
@@ -104,6 +105,20 @@ const RECOMMENDED_SUFFIX = /\s*(?:\((?:recommended|推荐)\)|（(?:recommended|�
 /** Strip the recommendation marker from an option label; the stored answer is the bare label. */
 export function stripRecommendedSuffix(value: string): string {
   return value.replace(RECOMMENDED_SUFFIX, '').trim()
+}
+
+/**
+ * Card options for one frontier decision: the decision's own 2-4 choices with
+ * the first (the recommended answer) marked `(Recommended)`, or the legacy
+ * single-option card built from `recommendation` when no `options` exist.
+ */
+export function cardOptionsOf(decision: GrillDecision): AskUserQuestionOption[] {
+  if (decision.options !== undefined && decision.options.length > 0) {
+    return decision.options.map((option, index) => ({
+      label: index === 0 ? `${option.trim()} (Recommended)` : option.trim(),
+    }))
+  }
+  return decision.recommendation.trim() === '' ? [] : [{ label: `${decision.recommendation.trim()} (Recommended)` }]
 }
 
 /** One card answer item -> the design-tree answer text; '' means the user skipped. */
@@ -162,12 +177,14 @@ export function registerGrillTools(ctx: Context, config: GrillToolsConfig): void
 
   ctx.tools.register(defineTool({
     name: 'grill_question',
-    description: 'Add one decision to the design tree. Its prerequisites must be settled decisions; the decision becomes part of the frontier and must not be asked before its prerequisites are answered.',
+    description: 'Add one decision to the design tree. Its prerequisites must be settled decisions; the decision becomes part of the frontier and must not be asked before its prerequisites are answered. '
+      + 'Pass 2 to 4 choices in `options` to render a multi-option card (the recommended answer must be the first choice and is marked 推荐); omit `options` for the single-option card fallback.',
     parameters: {
       session_id: { type: 'string', required: true },
       question_id: { type: 'string', required: true, description: 'Stable decision id, e.g. "scope".' },
       question: { type: 'string', required: true },
-      recommendation: { type: 'string', required: true, description: 'The agent-recommended answer the user can accept.' },
+      recommendation: { type: 'string', required: true, description: 'The agent-recommended answer the user can accept; must be the first entry of `options` when provided.' },
+      options: { type: 'array', items: { type: 'string' }, description: 'Optional 2-4 choices for a multi-option card; the first entry is the recommended answer.' },
       prerequisites: { type: 'array', items: { type: 'string' }, description: 'Ids of decisions that must be answered first.' },
     },
     output: {
@@ -182,7 +199,7 @@ export function registerGrillTools(ctx: Context, config: GrillToolsConfig): void
       },
       render,
     },
-    async execute(args: { session_id: string; question_id: string; question: string; recommendation: string; prerequisites?: string[] }, exec: GrillExecContext) {
+    async execute(args: { session_id: string; question_id: string; question: string; recommendation: string; options?: string[]; prerequisites?: string[] }, exec: GrillExecContext) {
       const stateRoot = stateRootOf(exec)
       return withSessionLock(`${stateRoot}\u0000${args.session_id}`, async () => {
         const session = requireSession(await readSession(stateRoot, args.session_id), args.session_id)
@@ -191,6 +208,7 @@ export function registerGrillTools(ctx: Context, config: GrillToolsConfig): void
           question: args.question,
           recommendation: args.recommendation,
           prerequisites: args.prerequisites,
+          options: args.options,
         })
         await writeSession(stateRoot, updated)
         return { session_id: updated.id, question_id: args.question_id, frontier: frontierOf(updated).map(decisionSummary) }
@@ -382,7 +400,7 @@ export function registerGrillTools(ctx: Context, config: GrillToolsConfig): void
             id: decision.id,
             question: decision.question,
             header: decision.id,
-            options: decision.recommendation.trim() === '' ? [] : [{ label: `${decision.recommendation.trim()} (Recommended)` }],
+            options: cardOptionsOf(decision),
           })))
           let updated = session
           const recorded: { id: string; answer: string }[] = []

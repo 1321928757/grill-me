@@ -14,7 +14,7 @@ import { snapshotJsonValue } from '@deepseek-ai/dsh-session'
 import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
 import { GRILL_COMMAND, grillLine, registerGrillCommand } from '../lib/command.js'
 import { registerGrillTools } from '../lib/tools.js'
-import { cardAnswerText, stripRecommendedSuffix } from '../lib/tools.js'
+import { cardAnswerText, cardOptionsOf, stripRecommendedSuffix } from '../lib/tools.js'
 import { readSession } from '../lib/state.js'
 
 const workspace = await mkdtemp(join(tmpdir(), 'dsh-grill-me-lifecycle-'))
@@ -113,6 +113,21 @@ try {
     prerequisites: ['scope'],
   }, 'question with an unsettled prerequisite is rejected')
 
+  await rejected('grill_question', {
+    session_id: begun.session_id,
+    question_id: 'bad-options',
+    question: 'Bad options?',
+    recommendation: 'US',
+    options: ['US'],
+  }, 'question with fewer than 2 options is rejected')
+  await rejected('grill_question', {
+    session_id: begun.session_id,
+    question_id: 'bad-first',
+    question: 'Bad first option?',
+    recommendation: 'US',
+    options: ['EU', 'US', 'APAC'],
+  }, 'question whose first option is not the recommendation is rejected')
+
   await call('grill_answer', { session_id: begun.session_id, question_id: 'scope', answer: 'MVP only' })
   await call('grill_question', {
     session_id: begun.session_id,
@@ -206,6 +221,13 @@ try {
   check("cardAnswerText prefers custom over selected", cardAnswerText({ id: 'a', selected: ['X (Recommended)'], custom: '  my answer  ' }) === 'my answer')
   check("cardAnswerText falls back to the stripped selected label", cardAnswerText({ id: 'a', selected: ['US (Recommended)'] }) === 'US')
   check("cardAnswerText returns '' for a skipped answer", cardAnswerText({ id: 'a', selected: [] }) === '')
+  check('cardAnswerText reads a non-first selected option verbatim', cardAnswerText({ id: 'a', selected: ['On-prem'] }) === 'On-prem')
+  check("cardOptionsOf marks only the first option as recommended",
+    JSON.stringify(cardOptionsOf({ id: 'a', question: 'Q', recommendation: 'Cloud', prerequisites: [], options: ['Cloud', 'On-prem', 'Hybrid'] }).map(option => option.label))
+    === JSON.stringify(['Cloud (Recommended)', 'On-prem', 'Hybrid']))
+  check('cardOptionsOf falls back to the single-option card without options',
+    JSON.stringify(cardOptionsOf({ id: 'a', question: 'Q', recommendation: 'MVP only', prerequisites: [] }).map(option => option.label))
+    === JSON.stringify(['MVP only (Recommended)']))
 
   await callCard('grill_begin', { query: 'card flow' })
   await callCard('grill_question', {
@@ -213,13 +235,16 @@ try {
     question_id: 'scope',
     question: 'Which scope?',
     recommendation: 'MVP only',
+    options: ['MVP only', 'Full', 'Research'],
   })
 
   userQuestions.ask = async (request) => {
     check('frontier cards carry the decision ids', request.questions.length === 1 && request.questions[0]?.id === 'scope')
-    check('frontier cards render the recommendation as the recommended option',
-      request.questions[0]?.options?.length === 1
-      && request.questions[0]?.options?.[0]?.label === 'MVP only (Recommended)')
+    check('frontier cards render every option with the recommendation first',
+      request.questions[0]?.options?.length === 3
+      && request.questions[0]?.options?.[0]?.label === 'MVP only (Recommended)'
+      && request.questions[0]?.options?.[1]?.label === 'Full'
+      && request.questions[0]?.options?.[2]?.label === 'Research')
     return { answers: [{ id: 'scope', selected: ['MVP only (Recommended)'] }] }
   }
   const asked = await callCard('grill_ask', { session_id: 'card-flow' })
@@ -231,14 +256,17 @@ try {
     question_id: 'market',
     question: 'Which market?',
     recommendation: 'US',
+    options: ['US', 'EU', 'APAC'],
     prerequisites: ['scope'],
   })
   check('an answered prerequisite unlocks the next decision via cards',
     unlocked.frontier.length === 1 && unlocked.frontier[0]?.id === 'market')
-  userQuestions.ask = async () => ({ answers: [{ id: 'market', custom: 'US East' }] })
-  const askedCustom = await callCard('grill_ask', { session_id: 'card-flow' })
-  check('grill_ask records a custom answer verbatim', askedCustom.answers[0]?.answer === 'US East')
-  check('frontier drains after the last card answer', askedCustom.remaining === 0)
+  check('frontier summaries expose the decision options',
+    JSON.stringify(unlocked.frontier[0]?.options) === JSON.stringify(['US', 'EU', 'APAC']))
+  userQuestions.ask = async () => ({ answers: [{ id: 'market', selected: ['EU'] }] })
+  const askedOption = await callCard('grill_ask', { session_id: 'card-flow' })
+  check('grill_ask records a non-first option verbatim', askedOption.answers[0]?.answer === 'EU')
+  check('frontier drains after the last card answer', askedOption.remaining === 0)
   check('frontier-asked events emitted', events.filter(event => event.type === 'grill-me/frontier-asked').length === 2)
 
   userQuestions.ask = async (request) => {
@@ -250,6 +278,18 @@ try {
   const settledByCard = await callCard('grill_ask', { session_id: 'card-flow', boundary: 'card boundary' })
   check('grill_ask settles on approval', settledByCard.status === 'settled' && settledByCard.boundary === 'card boundary')
   check('settle confirmation emits the session-settled event', events.some(event => event.type === 'grill-me/session-settled'))
+
+  await callCard('grill_begin', { query: 'custom option' })
+  await callCard('grill_question', {
+    session_id: 'custom-option',
+    question_id: 'scope',
+    question: 'Scope?',
+    recommendation: 'A',
+    options: ['A', 'B', 'C'],
+  })
+  userQuestions.ask = async () => ({ answers: [{ id: 'scope', selected: ['B'], custom: '  custom scope  ' }] })
+  const askedCustom = await callCard('grill_ask', { session_id: 'custom-option' })
+  check('grill_ask prefers a custom answer over a selected option', askedCustom.answers[0]?.answer === 'custom scope')
 
   await callCard('grill_begin', { query: 'declined settle' })
   await callCard('grill_question', { session_id: 'declined-settle', question_id: 'scope', question: 'Scope?', recommendation: 'A' })

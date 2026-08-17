@@ -16,6 +16,7 @@ import {
   archiveStatus,
   createSession,
   frontierOf,
+  normalizeOptions,
   prereqBlockers,
   readSession,
   sanitizeKey,
@@ -92,6 +93,45 @@ check('answered decisions are frozen', frozen)
 
 session = answerDecision(session, 'market', 'US')
 check('empty frontier is ready to settle', frontierOf(session).length === 0)
+
+const multi = addDecision(session, {
+  id: 'delivery',
+  question: 'Which delivery?',
+  recommendation: 'Cloud',
+  prerequisites: [],
+  options: ['Cloud', 'On-prem', 'Hybrid'],
+})
+check('multi-option decision enters the frontier with its options',
+  frontierOf(multi).length === 1 && JSON.stringify(frontierOf(multi)[0]?.options) === JSON.stringify(['Cloud', 'On-prem', 'Hybrid']))
+check('normalizeOptions keeps 2-4 trimmed choices', JSON.stringify(normalizeOptions('Cloud', [' Cloud ', 'On-prem', 'Hybrid'])) === JSON.stringify(['Cloud', 'On-prem', 'Hybrid']))
+let optionsRejected = false
+try {
+  normalizeOptions('Cloud', ['Cloud'])
+} catch {
+  optionsRejected = true
+}
+check('fewer than 2 options are rejected', optionsRejected)
+optionsRejected = false
+try {
+  normalizeOptions('Cloud', ['A', 'B', 'C', 'D', 'E'])
+} catch {
+  optionsRejected = true
+}
+check('more than 4 options are rejected', optionsRejected)
+optionsRejected = false
+try {
+  normalizeOptions('Cloud', ['On-prem', 'Hybrid'])
+} catch {
+  optionsRejected = true
+}
+check('options whose first entry is not the recommendation are rejected', optionsRejected)
+let multiFrozen = false
+try {
+  answerDecision(session, 'delivery', 'Cloud')
+} catch {
+  multiFrozen = true
+}
+check('answering a decision absent from the session is rejected', multiFrozen)
 let settleRejected = false
 try {
   settleSession(session, ' ')
