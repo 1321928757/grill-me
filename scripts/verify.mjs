@@ -113,24 +113,31 @@ const multi = addDecision(session, {
 })
 check('multi-option decision enters the frontier with its options',
   frontierOf(multi).length === 1 && JSON.stringify(frontierOf(multi)[0]?.options) === JSON.stringify(['Cloud', 'On-prem', 'Hybrid']))
-check('normalizeOptions keeps 2-4 trimmed choices', JSON.stringify(normalizeOptions('Cloud', [' Cloud ', 'On-prem', 'Hybrid'])) === JSON.stringify(['Cloud', 'On-prem', 'Hybrid']))
+check('normalizeOptions keeps at least 3 trimmed choices', JSON.stringify(normalizeOptions('Cloud', [' Cloud ', 'On-prem', 'Hybrid'])) === JSON.stringify(['Cloud', 'On-prem', 'Hybrid']))
 let optionsRejected = false
 try {
-  normalizeOptions('Cloud', ['Cloud'])
+  normalizeOptions('Cloud', ['Cloud', 'On-prem'])
 } catch {
   optionsRejected = true
 }
-check('fewer than 2 options are rejected', optionsRejected)
+check('fewer than the default 3 options are rejected', optionsRejected)
 optionsRejected = false
 try {
-  normalizeOptions('Cloud', ['A', 'B', 'C', 'D', 'E'])
+  normalizeOptions('Cloud', ['Cloud', 'A', 'B', 'C', 'D'])
 } catch {
   optionsRejected = true
 }
-check('more than 4 options are rejected', optionsRejected)
+check('more than 3 options are accepted (no upper bound)', !optionsRejected && JSON.stringify(normalizeOptions('Cloud', ['Cloud', 'A', 'B', 'C', 'D'])) === JSON.stringify(['Cloud', 'A', 'B', 'C', 'D']))
 optionsRejected = false
 try {
-  normalizeOptions('Cloud', ['On-prem', 'Hybrid'])
+  normalizeOptions('Cloud', ['A', 'B'], 4)
+} catch {
+  optionsRejected = true
+}
+check('a custom minCount rejects fewer than that bound', optionsRejected)
+optionsRejected = false
+try {
+  normalizeOptions('Cloud', ['On-prem', 'Hybrid', 'Local'])
 } catch {
   optionsRejected = true
 }

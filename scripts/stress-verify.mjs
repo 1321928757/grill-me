@@ -121,19 +121,25 @@ try {
   userQuestions.ask = async () => ({ answers: [{ id: 'scope', selected: ['A (Recommended)'] }] })
   const cardRound = await call('grill_ask', { session_id: 'card-settle' })
   check('grill_ask records and drains a single-decision frontier', cardRound.remaining === 0 && cardRound.answers.length === 1)
-  userQuestions.ask = async () => ({ answers: [{ id: 'settle-confirm', selected: ['确认，按此边界执行 (Recommended)'] }] })
-  const cardSettled = await call('grill_ask', { session_id: 'card-settle', boundary: 'card settle boundary' })
-  check('grill_ask settles through the confirmation card', cardSettled.status === 'settled' && cardSettled.boundary === 'card settle boundary')
+  let settleCardRendered = false
+  userQuestions.ask = async () => {
+    settleCardRendered = true
+    return { answers: [] }
+  }
+  const textSettled = await call('grill_ask', { session_id: 'card-settle', boundary: 'card settle boundary' })
+  check('grill_ask returns the boundary text without a settle card', !settleCardRendered && textSettled.status === 'open' && textSettled.boundary === 'card settle boundary')
+  const frozen = await call('grill_settle', { session_id: 'card-settle', boundary: 'card settle boundary' })
+  check('grill_settle freezes through the text-confirmation path', frozen.status === 'settled' && frozen.boundary === 'card settle boundary')
   await rejected('grill_ask', { session_id: 'card-settle', boundary: 'late' }, 'grill_ask on a settled session is rejected')
 
   await call('grill_begin', { query: 'multi option' })
   await call('grill_question', { session_id: 'multi-option', question_id: 'scope', question: 'Scope?', recommendation: 'A', options: ['A', 'B', 'C', 'D'] })
-  await call('grill_question', { session_id: 'multi-option', question_id: 'delivery', question: 'Delivery?', recommendation: 'Cloud', options: ['Cloud', 'On-prem'] })
+  await call('grill_question', { session_id: 'multi-option', question_id: 'delivery', question: 'Delivery?', recommendation: 'Cloud', options: ['Cloud', 'On-prem', 'Hybrid'] })
   userQuestions.ask = async (request) => {
     check('multi-option frontier renders both decisions with their choices',
       request.questions.length === 2
       && request.questions[0]?.options?.length === 4
-      && request.questions[1]?.options?.length === 2)
+      && request.questions[1]?.options?.length === 3)
     return { answers: [
       { id: 'scope', selected: ['B'] },
       { id: 'delivery', selected: ['Cloud (Recommended)'] },
@@ -151,7 +157,9 @@ try {
     error.code = 'NO_PROVIDER'
     throw error
   }
-  await rejected('grill_ask', { session_id: 'card-idle', boundary: 'x' }, 'grill_ask without a UI provider is rejected')
+  await call('grill_begin', { query: 'frontier provider' })
+  await call('grill_question', { session_id: 'frontier-provider', question_id: 'scope', question: 'Scope?', recommendation: 'A', options: ['A', 'B', 'C'] })
+  await rejected('grill_ask', { session_id: 'frontier-provider' }, 'grill_ask on a frontier without a UI provider is rejected')
 
   // grill_docs isolation: sessions share the workspace docs root but the
   // session gate is per-session; docs writes must not cross sessions.

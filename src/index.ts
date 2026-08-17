@@ -23,6 +23,9 @@ export interface Config {
 
   /** Docs root relative to the caller workspace; '' means the workspace root. */
   docsDir?: string
+
+  /** Minimum number of options a question card should carry (default 3); no upper bound. */
+  optionCount?: number
 }
 
 export const Config: z<Config> = z.object({
@@ -30,22 +33,23 @@ export const Config: z<Config> = z.object({
   promptSectionOrder: z.natural().default(118),
   docsEnabled: z.boolean().default(true),
   docsDir: z.string().default(''),
+  optionCount: z.natural().min(3).default(3),
 })
 
-function usageSectionText(): string {
+function usageSectionText(optionCount: number): string {
   return `Grilling is invoked only by the /grill-me command — there is no automatic trigger for vague queries.
 When the user's message begins with /grill-me (typed directly, or steered from the command by the client), the grill workflow is FORCED and may not be skipped because the query looks crisp:
 1. "/grill-me <query>" grills that query. A bare "/grill-me" grills the user's most recent substantive request in this conversation; if there is none, say so and show the usage.
 2. Build a design tree: every decision is a node; settled answers unlock the decisions that depend on them.
-3. Ask the whole frontier in one round through grill_ask: call grill_ask with the session_id; it renders every frontier decision as a DSH question card (2-4 options, the recommended answer first and marked 推荐, plus a custom-answer field), and records the answers into the design tree automatically. The card is the ONLY allowed presentation — never ask grill questions as plain text.
+3. Ask the whole frontier in one round through grill_ask: call grill_ask with the session_id; it renders every frontier decision as a DSH question card (at least ${optionCount} options, the recommended answer first and marked 推荐, plus a custom-answer field), and records the answers into the design tree automatically. The card is the ONLY allowed presentation for frontier rounds — never ask grill questions as plain text.
 4. Finding facts is your job. Look up anything you can from the environment; only decisions belong to the user.
 5. After each round, recompute the frontier from the grill_ask result and ask the next round the same way. Do not ask questions whose prerequisites are still open.
-6. Do not execute the query before the boundary is settled: when the frontier is empty, write the explicit boundary spec and call grill_ask again with the boundary — it presents a settle-confirmation card; only after the user approves it is the boundary frozen, and only then may you execute.
+6. Do not execute the query before the boundary is settled: when the frontier is empty, write the explicit boundary spec and call grill_ask again with the boundary — it returns the boundary text WITHOUT rendering a card; ask the user in plain text to confirm it, and only after they approve, call grill_settle to freeze the boundary. Nothing executes before that.
 7. Use grill_archive to close the session after the query is executed or abandoned. In environments without a question-card UI (headless CLI), grill_ask fails with a user-questions-unavailable error — then ask in plain text and record answers with grill_answer instead.`
 }
 
 function docsUsageSectionText(): string {
-  return `The /grill-with-docs command runs the same forced grill loop as /grill-me (design tree, frontier rounds, settle confirmation) and additionally sinks the domain model as docs while you grill:
+  return `The /grill-with-docs command runs the same forced grill loop as /grill-me (design tree, frontier rounds, text-based settle confirmation) and additionally sinks the domain model as docs while you grill:
 1. "/grill-with-docs <query>" grills that query and writes docs. A bare "/grill-with-docs" grills the user's most recent substantive request and writes docs.
 2. During the rounds, use grill_docs_read to check the current CONTEXT.md glossary, CONTEXT-MAP.md, and docs/adr/ numbering before proposing terms or decisions — never guess or duplicate.
 3. When a term crystallizes, call grill_docs_update with kind=term: one canonical term, a one-two sentence definition of what it IS, an optional _Avoid_ list, and an optional grouping section. Update CONTEXT.md inline as terms resolve — do not batch them.
@@ -55,8 +59,10 @@ function docsUsageSectionText(): string {
 }
 
 export function apply(ctx: Context, config: Config): void {
+  const optionCount = config.optionCount ?? 3
   const resolved: GrillToolsConfig = {
     stateDir: config.stateDir ?? '.grill-me',
+    optionCount,
   }
   const docsResolved: DocsToolsConfig = {
     stateDir: config.stateDir ?? '.grill-me',
@@ -66,7 +72,7 @@ export function apply(ctx: Context, config: Config): void {
   ctx.systemPrompt.section({
     name: 'grill-me:usage',
     order: config.promptSectionOrder ?? 118,
-    text: usageSectionText(),
+    text: usageSectionText(optionCount),
   })
   ctx.systemPrompt.section({
     name: 'grill-me:docs-usage',

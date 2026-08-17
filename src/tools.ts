@@ -20,6 +20,8 @@ import type { GrillDecision, GrillSession, GrillStatus } from './types.ts'
 
 export interface GrillToolsConfig {
   stateDir: string
+  /** Minimum number of options a question card should carry (default 3); no upper bound. */
+  optionCount?: number
 }
 
 /**
@@ -129,11 +131,6 @@ export function cardAnswerText(item: AskUserQuestionAnswerItem): string {
   return selected === undefined ? '' : stripRecommendedSuffix(selected)
 }
 
-/** Settle-confirmation labels; the confirm option carries the 推荐 badge via the suffix. */
-const SETTLE_CONFIRM_LABEL = '确认，按此边界执行'
-const SETTLE_DECLINE_LABEL = '需要修改'
-const SETTLE_QUESTION_ID = 'settle-confirm'
-
 export function registerGrillTools(ctx: Context, config: GrillToolsConfig): void {
   const stateRootOf = (exec: GrillExecContext) => join(workspaceOf(exec), config.stateDir)
 
@@ -178,13 +175,13 @@ export function registerGrillTools(ctx: Context, config: GrillToolsConfig): void
   ctx.tools.register(defineTool({
     name: 'grill_question',
     description: 'Add one decision to the design tree. Its prerequisites must be settled decisions; the decision becomes part of the frontier and must not be asked before its prerequisites are answered. '
-      + 'Pass 2 to 4 choices in `options` to render a multi-option card (the recommended answer must be the first choice and is marked 推荐); omit `options` for the single-option card fallback.',
+      + `Pass at least ${config.optionCount ?? 3} choices in \`options\` to render a multi-option card (the recommended answer must be the first choice and is marked 推荐); omit \`options\` for the single-option card fallback.`,
     parameters: {
       session_id: { type: 'string', required: true },
       question_id: { type: 'string', required: true, description: 'Stable decision id, e.g. "scope".' },
       question: { type: 'string', required: true },
       recommendation: { type: 'string', required: true, description: 'The agent-recommended answer the user can accept; must be the first entry of `options` when provided.' },
-      options: { type: 'array', items: { type: 'string' }, description: 'Optional 2-4 choices for a multi-option card; the first entry is the recommended answer.' },
+      options: { type: 'array', items: { type: 'string' }, description: `At least ${config.optionCount ?? 3} choices for a multi-option card (no upper bound); the first entry is the recommended answer.` },
       prerequisites: { type: 'array', items: { type: 'string' }, description: 'Ids of decisions that must be answered first.' },
     },
     output: {
@@ -209,6 +206,7 @@ export function registerGrillTools(ctx: Context, config: GrillToolsConfig): void
           recommendation: args.recommendation,
           prerequisites: args.prerequisites,
           options: args.options,
+          minOptions: config.optionCount ?? 3,
         })
         await writeSession(stateRoot, updated)
         return { session_id: updated.id, question_id: args.question_id, frontier: frontierOf(updated).map(decisionSummary) }
@@ -361,15 +359,16 @@ export function registerGrillTools(ctx: Context, config: GrillToolsConfig): void
 
   ctx.tools.register(defineTool({
     name: 'grill_ask',
-    description: 'Ask the user through the DSH question-card UI, the only allowed presentation for grill rounds. '
+    description: 'Ask the user through the DSH question-card UI, the only allowed presentation for frontier rounds. '
       + 'With an open frontier it renders every frontier decision as a card (the recommended answer is the first option, '
       + 'marked 推荐, plus a custom-answer field) and writes the recorded answers into the design tree automatically. '
-      + 'With an empty frontier and a boundary it renders a settle-confirmation card and freezes the boundary on approval. '
+      + 'With an empty frontier and a boundary it returns the boundary text for confirmation WITHOUT rendering a card: '
+      + 'ask the user in plain text, then freeze the boundary with grill_settle once they approve. '
       + 'In environments without a question-card UI it fails with a user-questions-unavailable error; then ask in plain text '
       + 'and record answers with grill_answer instead.',
     parameters: {
       session_id: { type: 'string', required: true },
-      boundary: { type: 'string', description: 'Explicit boundary spec to confirm once the frontier is empty; settles the session on approval.' },
+      boundary: { type: 'string', description: 'Explicit boundary spec to confirm once the frontier is empty; returned as text for plain-text confirmation, then frozen via grill_settle.' },
     },
     output: {
       schema: {
@@ -430,34 +429,16 @@ export function registerGrillTools(ctx: Context, config: GrillToolsConfig): void
         if (boundary === '') {
           return { session_id: session.id, status: session.status, answers: [], frontier: [], remaining: 0 }
         }
-        const verdict = await askViaCards(ctx, exec, [{
-          id: SETTLE_QUESTION_ID,
-          question: '确认边界规格？',
-          detail: boundary,
-          options: [{ label: `${SETTLE_CONFIRM_LABEL} (Recommended)` }, { label: SETTLE_DECLINE_LABEL }],
-        }])
-        const settleAnswer = verdict.answers[0]
-        const confirmed = settleAnswer !== undefined && cardAnswerText(settleAnswer) === SETTLE_CONFIRM_LABEL
-        if (confirmed) {
-          const updated = settleSession(session, boundary)
-          await writeSession(stateRoot, updated)
-          appendGrillEvent(exec.agent, 'grill-me/session-settled', { sessionId: updated.id, boundary })
-          return {
-            session_id: updated.id,
-            status: updated.status,
-            answers: [],
-            frontier: [],
-            remaining: 0,
-            boundary,
-          }
-        }
+        // Settle confirmation is plain-text: no card interaction. Return the
+        // boundary (status stays open); the agent asks the user in text and
+        // freezes it with grill_settle on approval.
         return {
           session_id: session.id,
           status: session.status,
           answers: [],
           frontier: [],
           remaining: 0,
-          modification: settleAnswer?.custom ?? '',
+          boundary,
         }
       })
     },

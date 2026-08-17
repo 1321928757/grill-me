@@ -32,17 +32,18 @@ scripts/
   - `stateDir`（默认 `.grill-me`）：工作区下的状态目录名；
   - `promptSectionOrder`（默认 `118`）：system prompt 段顺序；
   - `docsEnabled`（默认 `true`）：`/grill-with-docs` 是否允许写文档；`/grill-me` 始终不写；
-  - `docsDir`（默认 `''`）：文档根相对工作区，`''` = 工作区根。
+  - `docsDir`（默认 `''`）：文档根相对工作区，`''` = 工作区根；
+  - `optionCount`（默认 `3`，最小 `3`，无上限）：每题问题卡片至少携带的选项数，`normalizeOptions` 以下限校验。
 - `cordis.patch.yml` 的 `name` 必须等于 npm 包名 `@nanmicoder/dsh-grill-me`，否则 profile 加载失败。
 
 ## 提问呈现（grill_ask 卡片流）
 
-- **目标**：frontier 每轮与 settle 确认强制走 DSH Web GUI 结构化问题卡片（框框），废除纯文本提问。
+- **目标**：frontier 每轮强制走 DSH Web GUI 结构化问题卡片（框框），废除纯文本 frontier 提问；settle 确认走纯文本（不渲染卡片）。
 - **机制**：`grill_ask` 是 grill-me 自持的包装工具，内部直接调用 `ctx.userQuestions.ask()`——卡片按能力接缝渲染（与 preset 组合的 `ask_user_question` 同款 UI），不依赖 preset 是否组合 `tool-ask-user`。
 - **类型桥**：`tools.ts` 用本地 `declare module '@deepseek-ai/cordis'` 合并 `Context.userQuestions` 的最小结构契约（`ask(request): Promise<AskUserQuestionAnswer>`），插件不引入 `@deepseek-ai/dsh-user-questions` 依赖；运行时服务对象由宿主提供。
-- **frontier 轮**：`grill_ask(session_id)` 读取会话 frontier，每题渲染一张卡片（id=决策 id，header=决策 id）。决策带 `options`（2~4 个，由 `grill_question` 传入）时渲染全部选项，首个选项附 `(Recommended)` 后缀——卡片 UI 据此显示「推荐」徽标；不带 `options` 时退回单选卡片（仅推荐答案 + 自定义输入 + 跳过）。返回答案后逐题 `answerDecision` 自动写树：`custom` 优先，否则取 `selected[0]` 并剥离推荐后缀；跳过（`selected: []` 且无 custom）保持决策开放。
-- **settle 确认**：frontier 为空且带 `boundary` 时渲染单题确认卡片（`detail` 承载边界规格全文，选项「确认，按此边界执行 (Recommended)」/「需要修改」）；批准即 `settleSession` 并返回 `status: settled` + `boundary`，拒绝返回 `modification`（用户修改意见）保持 open。
-- **兜底**：`ctx.userQuestions` 缺失或 provider 未注册（`NO_PROVIDER`）时，工具抛 `grill_ask unavailable: ... (user-questions-unavailable)` 结构化错误；协议要求模型回退纯文本提问，答案经 `grill_answer` / `grill_settle` 记录。
+- **frontier 轮**：`grill_ask(session_id)` 读取会话 frontier，每题渲染一张卡片（id=决策 id，header=决策 id）。决策带 `options`（至少 `optionCount` 个，由 `grill_question` 传入，无上限）时渲染全部选项，首个选项附 `(Recommended)` 后缀——卡片 UI 据此显示「推荐」徽标；不带 `options` 时退回单选卡片（仅推荐答案 + 自定义输入 + 跳过）。返回答案后逐题 `answerDecision` 自动写树：`custom` 优先，否则取 `selected[0]` 并剥离推荐后缀；跳过（`selected: []` 且无 custom）保持决策开放。
+- **settle 确认（文本流）**：frontier 为空且带 `boundary` 时**不再调用 `userQuestions.ask()`**，直接返回边界文本（`status` 保持 open、`answers` 空、含 `boundary` 字段），由 agent 用纯文本向用户提问确认；用户批准后调用 `grill_settle` 固化边界（`settleSession` 置 `status: settled`）。不再有「确认/需要修改」卡片交互。
+- **兜底**：`ctx.userQuestions` 缺失或 provider 未注册（`NO_PROVIDER`）时，frontier 轮工具抛 `grill_ask unavailable: ... (user-questions-unavailable)` 结构化错误；协议要求模型回退纯文本提问，答案经 `grill_answer` / `grill_settle` 记录。
 - **护栏**：非 open 会话（settled/archived）在渲染任何卡片前即拒绝。
 
 ## /grill-me 与 /grill-with-docs 命令
@@ -63,7 +64,7 @@ scripts/
 
 ## 设计树模型
 
-- 决策：`id / question / recommendation / prerequisites / options / answer / answeredAt`（`options` 为可选 2~4 个备选，首个必须是推荐答案，由 `normalizeOptions` 归一校验：2~4 个、非空、首项 === recommendation；不传时决策仍为单选语义）。
+- 决策：`id / question / recommendation / prerequisites / options / answer / answeredAt`（`options` 为可选备选列表，至少 `optionCount` 个（默认 3）、无上限，首个必须是推荐答案，由 `normalizeOptions` 归一校验：≥ optionCount、非空、首项 === recommendation；不传时决策仍为单选语义）。
 - frontier：前置均已答、自身未答的决策集合；每轮只问 frontier。
 - 状态机：`open → settled → archived`。
   - settle 要求 frontier 为空且 boundary 非空；
@@ -74,8 +75,8 @@ scripts/
 | 工具 | 语义 | 失败语义 |
 | --- | --- | --- |
 | `grill_begin` | query 折叠为 session id，创建 open 会话 | 同名 query 已存在时拒绝 |
-| `grill_question` | 添加决策；前置必须已存在且已答；可带 2~4 个 `options`（首个必须是推荐答案） | 未知/未决前置列出 blockers 拒绝；`options` 数量或首项不合规拒绝 |
-| `grill_ask` | frontier 渲染为卡片并自动写回答案；frontier 空 + `boundary` 时渲染 settle 确认卡片（批准即固化） | 未知/非 open 会话拒绝；无 UI provider 抛 `user-questions-unavailable` |
+| `grill_question` | 添加决策；前置必须已存在且已答；可带至少 `optionCount` 个 `options`（首个必须是推荐答案） | 未知/未决前置列出 blockers 拒绝；`options` 数量（< optionCount）或首项不合规拒绝 |
+| `grill_ask` | frontier 渲染为卡片并自动写回答案；frontier 空 + `boundary` 时返回边界文本（不渲染卡片），由 `grill_settle` 固化 | 未知/非 open 会话拒绝；frontier 轮无 UI provider 抛 `user-questions-unavailable` |
 | `grill_answer` | 记录答案并冻结决策 | 已答决策重复回答拒绝 |
 | `grill_frontier` | 返回树、frontier、settled、boundary（仅 settle 后出现） | 未知会话拒绝 |
 | `grill_settle` | frontier 空且 boundary 非空时固化 | 未满足条件拒绝 |
@@ -99,8 +100,8 @@ scripts/
 ## 验证
 
 - `pnpm verify` 聚合四段：
-  - `verify.mjs`：打包契约、frontier 纯规则（含 `normalizeOptions` 的 2~4/非空/首项校验）、grill-with-docs 纯规则（`adrSlug`/`nextAdrNumber`/`adrFileName`/`renderAdr`/`detectLayout`/`renderContext`/`groupTerms`/`upsertTerm`）、session.json 往返/归档；
-  - `lifecycle-verify.mjs`：驱动编译后工具走 begin → question → answer → settle → archive，断言会话事件；`grill_ask` 卡片流（多选项卡片渲染、推荐后缀剥离、自定义答案、settle 确认/拒绝/跳过、无 provider、无服务）；grill_docs 工具流（读空工作区、写术语、读术语、写 ADR、编号递增、未知会话/缺字段/未知 kind 拒绝、docs-updated 事件）；验证 `/grill-me` 与 `/grill-with-docs` 命令在 commands 服务存在时注册、steer 载荷为字面命令行、裸命令行为、无 steer 通道报错、dispose 清理、无 commands 服务时不注册；
+  - `verify.mjs`：打包契约、frontier 纯规则（含 `normalizeOptions` 的 ≥ optionCount/非空/首项校验，无上限）、grill-with-docs 纯规则（`adrSlug`/`nextAdrNumber`/`adrFileName`/`renderAdr`/`detectLayout`/`renderContext`/`groupTerms`/`upsertTerm`）、session.json 往返/归档；
+  - `lifecycle-verify.mjs`：驱动编译后工具走 begin → question → answer → settle → archive，断言会话事件；`grill_ask` 卡片流（多选项卡片渲染、推荐后缀剥离、自定义答案、settle 文本流（返回边界文本不渲染卡片、`grill_settle` 固化）、跳过、无 provider、无服务）；grill_docs 工具流（读空工作区、写术语、读术语、写 ADR、编号递增、未知会话/缺字段/未知 kind 拒绝、docs-updated 事件）；验证 `/grill-me` 与 `/grill-with-docs` 命令在 commands 服务存在时注册、steer 载荷为字面命令行、裸命令行为、无 steer 通道报错、dispose 清理、无 commands 服务时不注册；
   - `stress-verify.mjs`：重复 begin、未知会话、跨会话隔离、并发回答、迟到写入、重复 archive、grill_ask 未知会话/空 frontier/多选项 frontier/无 provider、grill_docs 隔离与未知会话；
   - `verify:skill`：`.dsh/skills` 镜像与源一致。
 - 组合：`dsh plugin --profile headless add .` + `dsh --profile headless --dump-config | grep "id: grill-me"`。

@@ -30,12 +30,16 @@ export function prereqBlockers(session: GrillSession, decisionId: string): strin
   return decision?.prerequisites.filter(prerequisite => !answered.has(prerequisite)) ?? []
 }
 
-/** Validate the optional multi-option list; returns the trimmed choices or undefined. */
-export function normalizeOptions(recommendation: string, options: string[] | undefined): string[] | undefined {
+/**
+ * Validate the optional multi-option list; returns the trimmed choices or
+ * undefined. `minCount` (the configured optionCount, default 3) is a lower
+ * bound: fewer choices are rejected, more are fine (no upper bound).
+ */
+export function normalizeOptions(recommendation: string, options: string[] | undefined, minCount = 3): string[] | undefined {
   if (options === undefined) return undefined
   const cleaned = options.map(option => option.trim()).filter(option => option !== '')
-  if (cleaned.length < 2 || cleaned.length > 4) {
-    throw new Error(`decision options must have 2 to 4 choices, got ${options.length}`)
+  if (cleaned.length < minCount) {
+    throw new Error(`decision options must have at least ${minCount} choices, got ${options.length}`)
   }
   if (cleaned[0] !== recommendation.trim()) {
     throw new Error('the first option must be the recommended answer')
@@ -45,7 +49,7 @@ export function normalizeOptions(recommendation: string, options: string[] | und
 
 export function addDecision(
   session: GrillSession,
-  input: Omit<GrillDecision, 'prerequisites' | 'answer' | 'answeredAt'> & { prerequisites?: string[] },
+  input: Omit<GrillDecision, 'prerequisites' | 'answer' | 'answeredAt'> & { prerequisites?: string[]; minOptions?: number },
   now = Date.now(),
 ): GrillSession {
   if (session.status !== 'open') throw new Error(`session is ${session.status}; only open sessions accept questions`)
@@ -60,7 +64,7 @@ export function addDecision(
   }
   const blockers = prerequisites.filter(prerequisite => !answeredIds(session).has(prerequisite))
   if (blockers.length > 0) throw new Error(`prerequisites not settled: ${blockers.join(', ')}`)
-  const options = normalizeOptions(input.recommendation, input.options)
+  const options = normalizeOptions(input.recommendation, input.options, input.minOptions ?? 3)
   const next: GrillDecision = {
     id: input.id,
     question: input.question,

@@ -2,9 +2,10 @@
 /**
  * Drives the compiled grill_* tools through one full lifecycle:
  * begin -> question -> blocked prereq -> answer -> settle -> archive,
- * plus the grill_ask card flow (frontier cards, settle confirmation, decline,
- * skip, no-provider fallback), then verifies the /grill-me host command
- * registration and steering. Requires a prior `pnpm build` (lib/ present).
+ * plus the grill_ask card flow (frontier cards, text-based settle
+ * confirmation, skip, no-provider fallback), then verifies the /grill-me
+ * and /grill-with-docs host command registration and steering. Requires a
+ * prior `pnpm build` (lib/ present).
  */
 
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
@@ -271,14 +272,16 @@ try {
   check('frontier drains after the last card answer', askedOption.remaining === 0)
   check('frontier-asked events emitted', events.filter(event => event.type === 'grill-me/frontier-asked').length === 2)
 
+  let settleCardRendered = false
   userQuestions.ask = async (request) => {
-    check('settle card carries the boundary as detail', request.questions[0]?.detail === 'card boundary')
-    check('settle card offers confirm first with the badge',
-      request.questions[0]?.options?.[0]?.label === '确认，按此边界执行 (Recommended)')
-    return { answers: [{ id: 'settle-confirm', selected: ['确认，按此边界执行 (Recommended)'] }] }
+    settleCardRendered = true
+    return { answers: [] }
   }
-  const settledByCard = await callCard('grill_ask', { session_id: 'card-flow', boundary: 'card boundary' })
-  check('grill_ask settles on approval', settledByCard.status === 'settled' && settledByCard.boundary === 'card boundary')
+  const boundaryText = await callCard('grill_ask', { session_id: 'card-flow', boundary: 'card boundary' })
+  check('grill_ask with an empty frontier returns the boundary text without rendering a settle card',
+    !settleCardRendered && boundaryText.status === 'open' && boundaryText.boundary === 'card boundary')
+  const settledByText = await callCard('grill_settle', { session_id: 'card-flow', boundary: 'card boundary' })
+  check('grill_settle freezes the boundary after text confirmation', settledByText.status === 'settled' && settledByText.boundary === 'card boundary')
   check('settle confirmation emits the session-settled event', events.some(event => event.type === 'grill-me/session-settled'))
 
   await callCard('grill_begin', { query: 'custom option' })
@@ -293,15 +296,19 @@ try {
   const askedCustom = await callCard('grill_ask', { session_id: 'custom-option' })
   check('grill_ask prefers a custom answer over a selected option', askedCustom.answers[0]?.answer === 'custom scope')
 
-  await callCard('grill_begin', { query: 'declined settle' })
-  await callCard('grill_question', { session_id: 'declined-settle', question_id: 'scope', question: 'Scope?', recommendation: 'A' })
+  await callCard('grill_begin', { query: 'text settle' })
+  await callCard('grill_question', { session_id: 'text-settle', question_id: 'scope', question: 'Scope?', recommendation: 'A', options: ['A', 'B', 'C'] })
   userQuestions.ask = async () => ({ answers: [{ id: 'scope', selected: ['A (Recommended)'] }] })
-  await callCard('grill_ask', { session_id: 'declined-settle' })
-  userQuestions.ask = async () => ({ answers: [{ id: 'settle-confirm', selected: ['需要修改'], custom: '加一个市场维度' }] })
-  const declined = await callCard('grill_ask', { session_id: 'declined-settle', boundary: 'declined boundary' })
-  check('a declined settle stays open and returns the modification',
-    declined.status === 'open' && declined.modification === '加一个市场维度' && !('boundary' in declined))
-  check('a declined settle froze nothing on disk', (await readSession(cardStateRoot, 'declined-settle'))?.status === 'open')
+  await callCard('grill_ask', { session_id: 'text-settle' })
+  let declinedCardRendered = false
+  userQuestions.ask = async () => {
+    declinedCardRendered = true
+    return { answers: [] }
+  }
+  const textBoundary = await callCard('grill_ask', { session_id: 'text-settle', boundary: 'text boundary' })
+  check('a text-confirmed settle stays open with the boundary and renders no card',
+    !declinedCardRendered && textBoundary.status === 'open' && textBoundary.boundary === 'text boundary')
+  check('a text-confirmed settle froze nothing on disk yet', (await readSession(cardStateRoot, 'text-settle'))?.status === 'open')
 
   await callCard('grill_begin', { query: 'skipped answer' })
   await callCard('grill_question', { session_id: 'skipped-answer', question_id: 'scope', question: 'Scope?', recommendation: 'A' })
