@@ -12,6 +12,7 @@ import { join } from 'node:path'
 import { snapshotJsonValue } from '@deepseek-ai/dsh-session'
 import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
 import { registerGrillTools } from '../lib/tools.js'
+import { registerGrillDocsTools } from '../lib/docs.js'
 import { readSession } from '../lib/state.js'
 
 const workspace = await mkdtemp(join(tmpdir(), 'dsh-grill-me-stress-'))
@@ -38,6 +39,7 @@ const ctx = {
   userQuestions,
 }
 registerGrillTools(ctx, { stateDir: '.grill-me' })
+registerGrillDocsTools(ctx, { stateDir: '.grill-me', docsDir: '', docsEnabled: true })
 
 const exec = {
   signal: new AbortController().signal,
@@ -150,6 +152,15 @@ try {
     throw error
   }
   await rejected('grill_ask', { session_id: 'card-idle', boundary: 'x' }, 'grill_ask without a UI provider is rejected')
+
+  // grill_docs isolation: sessions share the workspace docs root but the
+  // session gate is per-session; docs writes must not cross sessions.
+  await call('grill_begin', { query: 'docs alpha' })
+  await call('grill_docs_update', { session_id: 'docs-alpha', kind: 'term', term: 'Alpha', definition: 'The alpha concept.' })
+  await rejected('grill_docs_read', { session_id: 'missing' }, 'grill_docs_read on an unknown session is rejected')
+  await rejected('grill_docs_update', { session_id: 'docs-alpha', kind: 'term', term: 'Beta' }, 'grill_docs_update with a missing definition is rejected')
+  const docsRead = await call('grill_docs_read', { session_id: 'docs-alpha', scope: 'context' })
+  check('grill_docs_read sees the term written by its own session', docsRead.context?.includes('**Alpha**:') === true)
 } finally {
   await rm(workspace, { recursive: true, force: true })
 }

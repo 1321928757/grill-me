@@ -40,6 +40,8 @@ Data flow: tool execution → disk state (source of truth) → session log event
 | `grill_frontier` | Inspect the tree, frontier, settled decisions, and boundary status |
 | `grill_settle` | Freeze the boundary spec once the frontier is empty and the user confirms (text-fallback path) |
 | `grill_archive` | Close and archive the session, keeping the full design tree |
+| `grill_docs_read` | Read the current CONTEXT.md / CONTEXT-MAP.md / docs/adr/ state and next ADR number (grill-with-docs) |
+| `grill_docs_update` | Persist a glossary term or an ADR to disk (grill-with-docs) |
 
 ## Install
 
@@ -80,12 +82,14 @@ Defaults work without extra setup:
 
 ## Command
 
-`/grill-me` is the only entry to grilling; vague queries are never grilled automatically.
+`/grill-me` is the only entry to grilling; vague queries are never grilled automatically. `/grill-with-docs` runs the same forced loop and additionally sinks the domain model as docs while you grill.
 
 | Usage | Meaning |
 | --- | --- |
 | `/grill-me <query>` | Force the full design-tree workflow on that query (mandatory even when it looks crisp) |
 | `/grill-me` (bare) | Force-grill the user's most recent substantive request in the conversation |
+| `/grill-with-docs <query>` | Force-grill the query and write CONTEXT.md glossary terms and ADRs as decisions settle |
+| `/grill-with-docs` (bare) | Force-grill the latest request and write docs |
 
 In the web GUI the command is intercepted by the client (visible in the "/" menu, `command/run` logs the args); the handler steers the literal command line back to the agent, which runs the `grill_*` tools. In headless/CLI the un-intercepted `/grill-me` line is handled by the same prompt protocol.
 
@@ -98,6 +102,8 @@ In the web GUI the command is intercepted by the client (visible in the "/" menu
 5. When the frontier is empty, the agent writes the explicit boundary spec and calls `grill_ask` again with the `boundary` — it renders a settle-confirmation card; nothing executes until the user approves and the boundary is frozen.
 6. After execution, the agent calls `grill_archive` to keep the full tree.
 7. In environments without a question-card UI (headless CLI), `grill_ask` fails with a `user-questions-unavailable` error; fall back to plain-text questions and record answers with `grill_answer` / `grill_settle`.
+
+`/grill-with-docs` adds a docs protocol: during the rounds, check the current glossary and ADR numbering with `grill_docs_read`, and persist resolved terms (kind=term) or architecture decisions (kind=adr) with `grill_docs_update` — CONTEXT.md and `docs/adr/000N-*.md` under the workspace docs root, following CONTEXT-FORMAT and ADR-FORMAT (see [docs/grill-with-docs.md](./docs/grill-with-docs.md)). Docs writes require an open session and `docsEnabled` (default true); `/grill-me` never writes docs.
 
 ## Verification
 
@@ -124,6 +130,7 @@ The matrix covers packaging contract, pure design-tree rules, tool lifecycle, co
 | [Usage](./docs/usage.md) | Architecture, tools, protocol, configuration, limits, validation |
 | [Verification](./docs/verification-guide.md) | Offline, composition, real e2e, and checklists |
 | [Implementation](./docs/implementation.md) | How grill-me is implemented and maintained |
+| [grill-with-docs](./docs/grill-with-docs.md) | The domain-modeling docs capability (CONTEXT.md / ADR) extracted from the original skill |
 | [AI pipeline](./docs/ai-pipeline.md) | Human-review-only workflow |
 
 ## Development
