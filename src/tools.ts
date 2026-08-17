@@ -15,7 +15,7 @@ import {
   withSessionLock,
   writeSession,
 } from './state.ts'
-import type { GrillDecision, GrillSession } from './types.ts'
+import type { GrillDecision, GrillSession, GrillStatus } from './types.ts'
 
 export interface GrillToolsConfig {
   stateDir: string
@@ -200,13 +200,23 @@ export function registerGrillTools(ctx: Context, config: GrillToolsConfig): void
     async execute(args: { session_id: string }, exec: GrillExecContext) {
       const stateRoot = stateRootOf(exec)
       const session = requireSession(await readSession(stateRoot, args.session_id), args.session_id)
-      return {
+      const result: {
+        session_id: string
+        status: GrillStatus
+        frontier: DecisionJson[]
+        settled: DecisionJson[]
+        boundary?: string
+      } = {
         session_id: session.id,
         status: session.status,
         frontier: frontierOf(session).map(decisionSummary),
         settled: session.decisions.filter(decision => decision.answer !== undefined).map(decisionSummary),
-        boundary: session.boundary,
       }
+      // The harness rejects any tool value containing `undefined` as "not
+      // lossless JSON"; an open session has no boundary yet, so the key is
+      // omitted until settle freezes one.
+      if (session.boundary !== undefined) result.boundary = session.boundary
+      return result
     },
   }))
 

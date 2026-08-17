@@ -22,7 +22,7 @@ pnpm verify
 覆盖内容：
 
 - `verify.mjs`：打包契约（patch name == package name、files 含 lib/patch、publishConfig public、peer 全 optional）、frontier 计算、前置门禁、冻结语义、settle/archive 迁移、session.json 往返与归档。
-- `lifecycle-verify.mjs`：用编译后的工具定义驱动完整生命周期，断言会话事件。
+- `lifecycle-verify.mjs`：用编译后的工具定义驱动完整生命周期，断言会话事件；并验证 `/grill-me` 命令注册（commands 服务存在/缺席）、steer 载荷为字面命令行、裸命令行为与 dispose 清理。
 - `stress-verify.mjs`：确定性并发与隔离矩阵（重复 begin、未知会话、双会话隔离、并发回答、迟到写入、重复 archive）。
 - `verify:skill`：skill 镜像一致。
 
@@ -40,7 +40,7 @@ dsh --profile headless --dump-config | grep "id: grill-me"
 
 ```sh
 mkdir -p /tmp/grill-me-e2e && cd /tmp/grill-me-e2e
-dsh --profile headless "用户想做一个'智能体系统'。先用 grill-me 拷打边界，再输出明确需求"
+dsh --profile headless "/grill-me 用户想做一个'智能体系统'"
 ```
 
 判定成功：
@@ -48,6 +48,8 @@ dsh --profile headless "用户想做一个'智能体系统'。先用 grill-me �
 - `.grill-me/<sessionId>/session.json` 存在且含设计树；
 - 会话日志含 `tool/call` 的 `grill_*` 工具调用（`grill-me/*` 会话事件为尽力而为）；
 - 最终有 settled 边界规格（或按协议明确归档）。
+
+> headless 无命令拦截，模型直接按协议段解析字面 `/grill-me` 行；web profile 则由命令 handler 拦截并 steer 同一行，行为一致。
 
 仓库级自动化：`.github/workflows/e2e.yml` 在配置 `DEEPSEEK_API_KEY` secret 后于 PR/手动触发时执行；无 key 自动跳过。
 

@@ -4,13 +4,14 @@
 
 ## 项目定位
 
-本项目只实现 grill-me：当用户 query 边界模糊时，agent 用设计树 frontier 轮次拷打用户，直到边界明确并固化，才继续执行。插件为 host-only，不含浏览器 client 面。
+本项目只实现 grill-me：用户通过 `/grill-me` 命令（唯一入口）触发拷打后，agent 用设计树 frontier 轮次拷打用户，直到边界明确并固化，才继续执行。插件为 host-only，不含浏览器 client 面。
 
 ## 代码布局
 
 ```
 src/
-├── index.ts          # 插件入口：name / inject / Config / apply
+├── index.ts          # 插件入口：name / inject / Config / apply（协议段 + 装配）
+├── command.ts        # /grill-me 宿主命令注册（ctx.commands 子装配 + steer 转发）
 ├── tools.ts          # 6 个 grill_* 工具的 defineTool 注册
 ├── state.ts          # 设计树纯规则 + session.json 持久化 + 会话锁
 ├── types.ts          # GrillDecision / GrillSession / GrillStatus
@@ -18,17 +19,26 @@ src/
 └── events.ts         # grill-me/* 事件发射（边界转换 + 降级）
 scripts/
 ├── verify.mjs            # 打包契约 + 纯规则 + 落盘/归档
-├── lifecycle-verify.mjs  # 工具生命周期 + 事件断言
+├── lifecycle-verify.mjs  # 工具生命周期 + 事件断言 + /grill-me 命令验证
 └── stress-verify.mjs     # 并发与隔离矩阵
 ```
 
 ## 插件契约
 
 - `name`：`grill-me`；`inject`：`tools`、`systemPrompt`。
+- 命令通过 `ctx.inject(['commands'], ...)` 可选子装配注册，不进入顶层 `inject`：`commands` 服务存在时挂载 `/grill-me`，不存在（无命令注册表的组合）时插件照常加载，headless 由协议兜底。
 - `Config`：
   - `stateDir`（默认 `.grill-me`）：工作区下的状态目录名；
   - `promptSectionOrder`（默认 `118`）：system prompt 段顺序。
 - `cordis.patch.yml` 的 `name` 必须等于 npm 包名 `@nanmicoder/dsh-grill-me`，否则 profile 加载失败。
+
+## /grill-me 命令
+
+- 命令名 `grill-me`（`GRILL_COMMAND`），描述 "Force the grill-me workflow on a query"，输入提示 `[query]`。
+- handler 不自己跑设计树：把用户输入的命令原文（`/grill-me` + `rawInput`，含分隔空白）经 `agent.steer(createUserMessage(...))` 作为 user message 交回模型，由模型按 "grill-me:usage" 协议段走 `grill_*` 工具。
+- 裸命令（`rawInput` 为空）steer 纯 `/grill-me` 行：协议段规定模型拷打对话中最近一条实质请求。
+- 命令原文进会话日志（`command/run` 记录参数、steered user message 保留字面行），重放可完整重建；headless 直接输入同一行时行为一致。
+- 模型可见内容必须能由会话日志重建：因此 steer 的是字面命令行而非改写后的提示词。
 
 ## 设计树模型
 
@@ -45,7 +55,7 @@ scripts/
 | `grill_begin` | query 折叠为 session id，创建 open 会话 | 同名 query 已存在时拒绝 |
 | `grill_question` | 添加决策；前置必须已存在且已答 | 未知/未决前置列出 blockers 拒绝 |
 | `grill_answer` | 记录答案并冻结决策 | 已答决策重复回答拒绝 |
-| `grill_frontier` | 返回树、frontier、settled、boundary | 未知会话拒绝 |
+| `grill_frontier` | 返回树、frontier、settled、boundary（仅 settle 后出现） | 未知会话拒绝 |
 | `grill_settle` | frontier 空且 boundary 非空时固化 | 未满足条件拒绝 |
 | `grill_archive` | 归档目录，历史完整保留 | 已归档会话重复归档拒绝 |
 
@@ -66,7 +76,7 @@ scripts/
 
 - `pnpm verify` 聚合四段：
   - `verify.mjs`：打包契约、frontier 纯规则、session.json 往返/归档；
-  - `lifecycle-verify.mjs`：驱动编译后工具走 begin → question → answer → settle → archive，断言 4 类事件；
+  - `lifecycle-verify.mjs`：驱动编译后工具走 begin → question → answer → settle → archive，断言 4 类事件；验证 `/grill-me` 命令在 commands 服务存在时注册、steer 载荷为字面命令行、裸命令行为、无 steer 通道报错、dispose 清理、无 commands 服务时不注册；
   - `stress-verify.mjs`：重复 begin、未知会话、跨会话隔离、并发回答、迟到写入、重复 archive；
   - `verify:skill`：`.dsh/skills` 镜像与源一致。
 - 组合：`dsh plugin --profile headless add .` + `dsh --profile headless --dump-config | grep "id: grill-me"`。
