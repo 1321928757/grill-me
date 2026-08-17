@@ -1,6 +1,7 @@
 import { join } from 'node:path'
 import { defineTool, type JsonValue } from '@deepseek-ai/dsh-tools'
 import type { Context } from '@deepseek-ai/cordis'
+import { appendGrillEvent } from './events.ts'
 import {
   addDecision,
   answerDecision,
@@ -95,6 +96,7 @@ export function registerGrillTools(ctx: Context, config: GrillToolsConfig): void
           updatedAt: Date.now(),
         }
         await createSession(stateRoot, session)
+        appendGrillEvent(exec.agent, 'grill-me/session-created', { sessionId: id, query: args.query })
         return { session_id: id, query: args.query }
       })
     },
@@ -166,6 +168,11 @@ export function registerGrillTools(ctx: Context, config: GrillToolsConfig): void
         const updated = answerDecision(session, args.question_id, args.answer)
         await writeSession(stateRoot, updated)
         const frontier = frontierOf(updated)
+        appendGrillEvent(exec.agent, 'grill-me/decision-answered', {
+          sessionId: updated.id,
+          questionId: args.question_id,
+          answer: args.answer,
+        })
         return { session_id: updated.id, question_id: args.question_id, frontier: frontier.map(decisionSummary), remaining: frontier.length }
       })
     },
@@ -229,6 +236,7 @@ export function registerGrillTools(ctx: Context, config: GrillToolsConfig): void
         const session = requireSession(await readSession(stateRoot, args.session_id), args.session_id)
         const updated = settleSession(session, args.boundary)
         await writeSession(stateRoot, updated)
+        appendGrillEvent(exec.agent, 'grill-me/session-settled', { sessionId: updated.id, boundary: args.boundary })
         return { session_id: updated.id, status: updated.status, boundary: updated.boundary ?? '' }
       })
     },
@@ -259,6 +267,7 @@ export function registerGrillTools(ctx: Context, config: GrillToolsConfig): void
         const updated = archiveStatus(session)
         if (updated.status !== session.status) await writeSession(stateRoot, updated)
         await archiveSession(stateRoot, updated.id)
+        appendGrillEvent(exec.agent, 'grill-me/session-archived', { sessionId: updated.id, reason: args.reason })
         return { session_id: updated.id, status: updated.status }
       })
     },

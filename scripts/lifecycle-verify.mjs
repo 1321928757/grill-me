@@ -31,7 +31,17 @@ const ctx = {
 }
 registerGrillTools(ctx, { stateDir: '.grill-me', maxRounds: 8 })
 
-const exec = { agent: { session: { header: { cwd: workspace } } } }
+const events = []
+const exec = {
+  agent: {
+    session: {
+      header: { cwd: workspace },
+      append(type, data) {
+        events.push({ type, data })
+      },
+    },
+  },
+}
 
 let failures = 0
 function check(label, condition, detail = '') {
@@ -113,6 +123,10 @@ try {
   check('live reads no longer see the session', await readSession(stateRoot, begun.session_id) === undefined)
   const archivedSession = await readFile(join(stateRoot, 'archive', begun.session_id, 'session.json'), 'utf8')
   check('archived tree keeps the boundary', archivedSession.includes('MVP for US users only'))
+  check('session-created event emitted', events.some(event => event.type === 'grill-me/session-created'))
+  check('decision-answered events emitted', events.filter(event => event.type === 'grill-me/decision-answered').length === 2)
+  check('session-settled event emitted', events.some(event => event.type === 'grill-me/session-settled'))
+  check('session-archived event emitted', events.some(event => event.type === 'grill-me/session-archived'))
 } finally {
   await rm(workspace, { recursive: true, force: true })
 }
