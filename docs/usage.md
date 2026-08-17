@@ -26,7 +26,6 @@
 - id: grill-me
   config:
     stateDir: .grill-me
-    maxRounds: 8
 ```
 
 ## 已知限制

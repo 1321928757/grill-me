@@ -29,7 +29,7 @@ const ctx = {
   },
   logger: { debug() {}, warn() {} },
 }
-registerGrillTools(ctx, { stateDir: '.grill-me', maxRounds: 8 })
+registerGrillTools(ctx, { stateDir: '.grill-me' })
 
 const events = []
 const exec = {

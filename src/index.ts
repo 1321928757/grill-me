@@ -12,15 +12,13 @@ export const inject = ['tools', 'systemPrompt']
 export interface Config {
   /** State directory name under the caller workspace; sessions live at `<workspace>/<stateDir>/<sessionId>/`. */
   stateDir?: string
-  /** Hard cap on design-tree rounds before the agent must summarize and ask the user how to proceed. */
-  maxRounds?: number
+
   /** Prompt-section order for the grill-me usage policy. */
   promptSectionOrder?: number
 }
 
 export const Config: z<Config> = z.object({
   stateDir: z.string().default('.grill-me'),
-  maxRounds: z.natural().default(8),
   promptSectionOrder: z.natural().default(118),
 })
 
@@ -37,7 +35,6 @@ function usageSectionText(): string {
 export function apply(ctx: Context, config: Config): void {
   const resolved: GrillToolsConfig = {
     stateDir: config.stateDir ?? '.grill-me',
-    maxRounds: config.maxRounds ?? 8,
   }
   ctx.systemPrompt.section({
     name: 'grill-me:usage',

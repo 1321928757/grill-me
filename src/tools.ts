@@ -19,7 +19,6 @@ import type { GrillDecision, GrillSession } from './types.ts'
 
 export interface GrillToolsConfig {
   stateDir: string
-  maxRounds: number
 }
 
 interface CallerAgent {

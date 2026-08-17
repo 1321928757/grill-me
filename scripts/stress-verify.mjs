@@ -30,7 +30,7 @@ const ctx = {
   },
   logger: { debug() {}, warn() {} },
 }
-registerGrillTools(ctx, { stateDir: '.grill-me', maxRounds: 8 })
+registerGrillTools(ctx, { stateDir: '.grill-me' })
 
 const exec = { agent: { session: { header: { cwd: workspace }, append() {} } } }
 
