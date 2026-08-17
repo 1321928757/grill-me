@@ -106,8 +106,7 @@ pnpm verify
 | --- | --- |
 | [使用指南](./docs/usage.md) | 架构、工具、协议、配置、限制与验证 |
 | [验证指南](./docs/verification-guide.md) | 离线、组合、真实 e2e 与验证清单 |
-| [插件开发](./docs/developing-dsh-plugins.md) | 从零开发 DSH 插件指南 |
-| [README 写作](./docs/readme-writing-guide.md) | 仓库文档约定 |
+| [实现说明](./docs/implementation.md) | grill-me 自身实现与维护指南 |
 | [AI 流水线](./docs/ai-pipeline.md) | 人类只审查、agent 只实现的工作流 |
 
 ## 开发

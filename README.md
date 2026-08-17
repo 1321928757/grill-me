@@ -106,8 +106,7 @@ The matrix covers packaging contract, pure design-tree rules, tool lifecycle, co
 | --- | --- |
 | [Usage](./docs/usage.md) | Architecture, tools, protocol, configuration, limits, validation |
 | [Verification](./docs/verification-guide.md) | Offline, composition, real e2e, and checklists |
-| [Plugin development](./docs/developing-dsh-plugins.md) | Building a DSH plugin from scratch |
-| [README writing](./docs/readme-writing-guide.md) | Repository documentation conventions |
+| [Implementation](./docs/implementation.md) | How grill-me is implemented and maintained |
 | [AI pipeline](./docs/ai-pipeline.md) | Human-review-only workflow |
 
 ## Development
