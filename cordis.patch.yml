@@ -1,5 +1,5 @@
 - insert:
     - id: grill-me
-      name: @nanmicoder/dsh-grill-me
+      name: "@nanmicoder/dsh-grill-me"
       config:
         stateDir: .grill-me
