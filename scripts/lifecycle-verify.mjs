@@ -2,8 +2,9 @@
 /**
  * Drives the compiled grill_* tools through one full lifecycle:
  * begin -> question -> blocked prereq -> answer -> settle -> archive,
- * then verifies the /grill-me host command registration and steering.
- * Requires a prior `pnpm build` (lib/ present).
+ * plus the grill_ask card flow (frontier cards, settle confirmation, decline,
+ * skip, no-provider fallback), then verifies the /grill-me host command
+ * registration and steering. Requires a prior `pnpm build` (lib/ present).
  */
 
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
@@ -13,11 +14,17 @@ import { snapshotJsonValue } from '@deepseek-ai/dsh-session'
 import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
 import { GRILL_COMMAND, grillLine, registerGrillCommand } from '../lib/command.js'
 import { registerGrillTools } from '../lib/tools.js'
+import { cardAnswerText, cardOptionsOf, stripRecommendedSuffix } from '../lib/tools.js'
 import { readSession } from '../lib/state.js'
 
 const workspace = await mkdtemp(join(tmpdir(), 'dsh-grill-me-lifecycle-'))
 const stateRoot = join(workspace, '.grill-me')
 const definitions = new Map()
+
+/** Swappable question-card provider the grill_ask scenarios drive. */
+const userQuestions = {
+  ask: async () => ({ answers: [] }),
+}
 
 const ctx = {
   effect(setup) {
@@ -32,11 +39,13 @@ const ctx = {
     return () => {}
   },
   logger: { debug() {}, warn() {} },
+  userQuestions,
 }
 registerGrillTools(ctx, { stateDir: '.grill-me' })
 
 const events = []
 const exec = {
+  signal: new AbortController().signal,
   agent: {
     session: {
       header: { cwd: workspace },
@@ -104,6 +113,21 @@ try {
     prerequisites: ['scope'],
   }, 'question with an unsettled prerequisite is rejected')
 
+  await rejected('grill_question', {
+    session_id: begun.session_id,
+    question_id: 'bad-options',
+    question: 'Bad options?',
+    recommendation: 'US',
+    options: ['US'],
+  }, 'question with fewer than 2 options is rejected')
+  await rejected('grill_question', {
+    session_id: begun.session_id,
+    question_id: 'bad-first',
+    question: 'Bad first option?',
+    recommendation: 'US',
+    options: ['EU', 'US', 'APAC'],
+  }, 'question whose first option is not the recommendation is rejected')
+
   await call('grill_answer', { session_id: begun.session_id, question_id: 'scope', answer: 'MVP only' })
   await call('grill_question', {
     session_id: begun.session_id,
@@ -148,6 +172,154 @@ try {
   check('session-archived event emitted', events.some(event => event.type === 'grill-me/session-archived'))
 } finally {
   await rm(workspace, { recursive: true, force: true })
+}
+
+// --- grill_ask: question-card flow ---
+
+console.log('\ngrill_ask card-flow verification')
+const cardWorkspace = await mkdtemp(join(tmpdir(), 'dsh-grill-me-cards-'))
+const cardStateRoot = join(cardWorkspace, '.grill-me')
+const cardExec = {
+  signal: new AbortController().signal,
+  agent: {
+    session: {
+      header: { cwd: cardWorkspace },
+      append(type, data) {
+        events.push({ type, data })
+      },
+    },
+  },
+}
+
+async function callCard(name, args) {
+  const definition = definitions.get(name)
+  if (!definition) throw new Error(`missing tool ${name}`)
+  const result = await definition.execute(args, cardExec)
+  const detached = snapshotJsonValue(result)
+  if (detached === undefined) {
+    throw new Error(`tool ${name} returned a non-lossless JSON value`)
+  }
+  const violations = validateJsonSchemaValue(definition.output.schema, detached, 'value')
+  if (violations.length > 0) {
+    throw new Error(`tool ${name} output violates its schema: ${violations.join('; ')}`)
+  }
+  return result
+}
+
+async function rejectedCard(name, args, label) {
+  try {
+    await callCard(name, args)
+    check(label, false, 'expected the call to fail')
+  } catch {
+    check(label, true)
+  }
+}
+
+try {
+  check("stripRecommendedSuffix strips the ASCII marker", stripRecommendedSuffix('MVP only (Recommended)') === 'MVP only')
+  check("stripRecommendedSuffix strips the CJK marker", stripRecommendedSuffix('MVP only（推荐）') === 'MVP only')
+  check("cardAnswerText prefers custom over selected", cardAnswerText({ id: 'a', selected: ['X (Recommended)'], custom: '  my answer  ' }) === 'my answer')
+  check("cardAnswerText falls back to the stripped selected label", cardAnswerText({ id: 'a', selected: ['US (Recommended)'] }) === 'US')
+  check("cardAnswerText returns '' for a skipped answer", cardAnswerText({ id: 'a', selected: [] }) === '')
+  check('cardAnswerText reads a non-first selected option verbatim', cardAnswerText({ id: 'a', selected: ['On-prem'] }) === 'On-prem')
+  check("cardOptionsOf marks only the first option as recommended",
+    JSON.stringify(cardOptionsOf({ id: 'a', question: 'Q', recommendation: 'Cloud', prerequisites: [], options: ['Cloud', 'On-prem', 'Hybrid'] }).map(option => option.label))
+    === JSON.stringify(['Cloud (Recommended)', 'On-prem', 'Hybrid']))
+  check('cardOptionsOf falls back to the single-option card without options',
+    JSON.stringify(cardOptionsOf({ id: 'a', question: 'Q', recommendation: 'MVP only', prerequisites: [] }).map(option => option.label))
+    === JSON.stringify(['MVP only (Recommended)']))
+
+  await callCard('grill_begin', { query: 'card flow' })
+  await callCard('grill_question', {
+    session_id: 'card-flow',
+    question_id: 'scope',
+    question: 'Which scope?',
+    recommendation: 'MVP only',
+    options: ['MVP only', 'Full', 'Research'],
+  })
+
+  userQuestions.ask = async (request) => {
+    check('frontier cards carry the decision ids', request.questions.length === 1 && request.questions[0]?.id === 'scope')
+    check('frontier cards render every option with the recommendation first',
+      request.questions[0]?.options?.length === 3
+      && request.questions[0]?.options?.[0]?.label === 'MVP only (Recommended)'
+      && request.questions[0]?.options?.[1]?.label === 'Full'
+      && request.questions[0]?.options?.[2]?.label === 'Research')
+    return { answers: [{ id: 'scope', selected: ['MVP only (Recommended)'] }] }
+  }
+  const asked = await callCard('grill_ask', { session_id: 'card-flow' })
+  check('grill_ask records the recommended answer without the marker',
+    asked.answers.length === 1 && asked.answers[0]?.answer === 'MVP only')
+
+  const unlocked = await callCard('grill_question', {
+    session_id: 'card-flow',
+    question_id: 'market',
+    question: 'Which market?',
+    recommendation: 'US',
+    options: ['US', 'EU', 'APAC'],
+    prerequisites: ['scope'],
+  })
+  check('an answered prerequisite unlocks the next decision via cards',
+    unlocked.frontier.length === 1 && unlocked.frontier[0]?.id === 'market')
+  check('frontier summaries expose the decision options',
+    JSON.stringify(unlocked.frontier[0]?.options) === JSON.stringify(['US', 'EU', 'APAC']))
+  userQuestions.ask = async () => ({ answers: [{ id: 'market', selected: ['EU'] }] })
+  const askedOption = await callCard('grill_ask', { session_id: 'card-flow' })
+  check('grill_ask records a non-first option verbatim', askedOption.answers[0]?.answer === 'EU')
+  check('frontier drains after the last card answer', askedOption.remaining === 0)
+  check('frontier-asked events emitted', events.filter(event => event.type === 'grill-me/frontier-asked').length === 2)
+
+  userQuestions.ask = async (request) => {
+    check('settle card carries the boundary as detail', request.questions[0]?.detail === 'card boundary')
+    check('settle card offers confirm first with the badge',
+      request.questions[0]?.options?.[0]?.label === '确认，按此边界执行 (Recommended)')
+    return { answers: [{ id: 'settle-confirm', selected: ['确认，按此边界执行 (Recommended)'] }] }
+  }
+  const settledByCard = await callCard('grill_ask', { session_id: 'card-flow', boundary: 'card boundary' })
+  check('grill_ask settles on approval', settledByCard.status === 'settled' && settledByCard.boundary === 'card boundary')
+  check('settle confirmation emits the session-settled event', events.some(event => event.type === 'grill-me/session-settled'))
+
+  await callCard('grill_begin', { query: 'custom option' })
+  await callCard('grill_question', {
+    session_id: 'custom-option',
+    question_id: 'scope',
+    question: 'Scope?',
+    recommendation: 'A',
+    options: ['A', 'B', 'C'],
+  })
+  userQuestions.ask = async () => ({ answers: [{ id: 'scope', selected: ['B'], custom: '  custom scope  ' }] })
+  const askedCustom = await callCard('grill_ask', { session_id: 'custom-option' })
+  check('grill_ask prefers a custom answer over a selected option', askedCustom.answers[0]?.answer === 'custom scope')
+
+  await callCard('grill_begin', { query: 'declined settle' })
+  await callCard('grill_question', { session_id: 'declined-settle', question_id: 'scope', question: 'Scope?', recommendation: 'A' })
+  userQuestions.ask = async () => ({ answers: [{ id: 'scope', selected: ['A (Recommended)'] }] })
+  await callCard('grill_ask', { session_id: 'declined-settle' })
+  userQuestions.ask = async () => ({ answers: [{ id: 'settle-confirm', selected: ['需要修改'], custom: '加一个市场维度' }] })
+  const declined = await callCard('grill_ask', { session_id: 'declined-settle', boundary: 'declined boundary' })
+  check('a declined settle stays open and returns the modification',
+    declined.status === 'open' && declined.modification === '加一个市场维度' && !('boundary' in declined))
+  check('a declined settle froze nothing on disk', (await readSession(cardStateRoot, 'declined-settle'))?.status === 'open')
+
+  await callCard('grill_begin', { query: 'skipped answer' })
+  await callCard('grill_question', { session_id: 'skipped-answer', question_id: 'scope', question: 'Scope?', recommendation: 'A' })
+  userQuestions.ask = async () => ({ answers: [{ id: 'scope', selected: [] }] })
+  const skipped = await callCard('grill_ask', { session_id: 'skipped-answer' })
+  check('a skipped card answer keeps the decision open', skipped.remaining === 1 && skipped.answers.length === 0)
+
+  userQuestions.ask = async () => {
+    const error = new Error('no user-questions provider is registered')
+    error.code = 'NO_PROVIDER'
+    throw error
+  }
+  await rejectedCard('grill_ask', { session_id: 'skipped-answer' }, 'grill_ask without a UI provider is rejected')
+
+  const serviceRef = ctx.userQuestions
+  delete ctx.userQuestions
+  await rejectedCard('grill_ask', { session_id: 'skipped-answer' }, 'grill_ask without a user-questions service is rejected')
+  ctx.userQuestions = serviceRef
+} finally {
+  await rm(cardWorkspace, { recursive: true, force: true })
 }
 
 // --- /grill-me host command ---

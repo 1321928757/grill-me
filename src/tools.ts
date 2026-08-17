@@ -1,5 +1,6 @@
 import { join } from 'node:path'
 import { defineTool, type JsonValue } from '@deepseek-ai/dsh-tools'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { Context } from '@deepseek-ai/cordis'
 import { appendGrillEvent } from './events.ts'
 import {
@@ -21,15 +22,52 @@ export interface GrillToolsConfig {
   stateDir: string
 }
 
-interface CallerAgent {
-  session: {
-    header: { cwd?: string }
+/**
+ * Minimal structural contract of the DSH `user-questions` capability, declared
+ * locally so the plugin stays dependency-free: the runtime service object is
+ * composed by the host (`@deepseek-ai/dsh-user-questions`), and any caller of
+ * `ctx.userQuestions.ask()` renders the same question-card UI in the web GUI.
+ */
+export interface AskUserQuestionOption {
+  label: string
+  description?: string
+}
+
+export interface AskUserQuestionItem {
+  id: string
+  question: string
+  detail?: string
+  header?: string
+  options?: AskUserQuestionOption[]
+  multiSelect?: boolean
+}
+
+export interface AskUserQuestionAnswerItem {
+  id: string
+  selected: string[]
+  custom?: string
+}
+
+export interface AskUserQuestionAnswer {
+  answers: AskUserQuestionAnswerItem[]
+}
+
+declare module '@deepseek-ai/cordis' {
+  interface Context {
+    userQuestions: {
+      ask(request: {
+        questions: AskUserQuestionItem[]
+        agent?: Agent
+        signal?: AbortSignal
+      }): Promise<AskUserQuestionAnswer>
+    }
   }
 }
 
 /** Structural slice of the tool execution context we read; the rest is framework-owned. */
 interface GrillExecContext {
-  agent?: CallerAgent
+  agent?: Agent
+  signal: AbortSignal
 }
 
 function requireSession(session: GrillSession | undefined, sessionId: string): GrillSession {
@@ -55,10 +93,46 @@ function decisionSummary(decision: GrillDecision): DecisionJson {
     question: decision.question,
     recommendation: decision.recommendation,
     prerequisites: decision.prerequisites,
+    options: decision.options ?? null,
     answer: decision.answer ?? null,
     answeredAt: decision.answeredAt ?? null,
   }
 }
+
+/** The "(Recommended)" / "（推荐）" marker the card UI turns into the 推荐 badge. */
+const RECOMMENDED_SUFFIX = /\s*(?:\((?:recommended|推荐)\)|（(?:recommended|推荐)）)\s*$/i
+
+/** Strip the recommendation marker from an option label; the stored answer is the bare label. */
+export function stripRecommendedSuffix(value: string): string {
+  return value.replace(RECOMMENDED_SUFFIX, '').trim()
+}
+
+/**
+ * Card options for one frontier decision: the decision's own 2-4 choices with
+ * the first (the recommended answer) marked `(Recommended)`, or the legacy
+ * single-option card built from `recommendation` when no `options` exist.
+ */
+export function cardOptionsOf(decision: GrillDecision): AskUserQuestionOption[] {
+  if (decision.options !== undefined && decision.options.length > 0) {
+    return decision.options.map((option, index) => ({
+      label: index === 0 ? `${option.trim()} (Recommended)` : option.trim(),
+    }))
+  }
+  return decision.recommendation.trim() === '' ? [] : [{ label: `${decision.recommendation.trim()} (Recommended)` }]
+}
+
+/** One card answer item -> the design-tree answer text; '' means the user skipped. */
+export function cardAnswerText(item: AskUserQuestionAnswerItem): string {
+  const custom = (item.custom ?? '').trim()
+  if (custom !== '') return custom
+  const selected = item.selected[0]
+  return selected === undefined ? '' : stripRecommendedSuffix(selected)
+}
+
+/** Settle-confirmation labels; the confirm option carries the 推荐 badge via the suffix. */
+const SETTLE_CONFIRM_LABEL = '确认，按此边界执行'
+const SETTLE_DECLINE_LABEL = '需要修改'
+const SETTLE_QUESTION_ID = 'settle-confirm'
 
 export function registerGrillTools(ctx: Context, config: GrillToolsConfig): void {
   const stateRootOf = (exec: GrillExecContext) => join(workspaceOf(exec), config.stateDir)
@@ -103,12 +177,14 @@ export function registerGrillTools(ctx: Context, config: GrillToolsConfig): void
 
   ctx.tools.register(defineTool({
     name: 'grill_question',
-    description: 'Add one decision to the design tree. Its prerequisites must be settled decisions; the decision becomes part of the frontier and must not be asked before its prerequisites are answered.',
+    description: 'Add one decision to the design tree. Its prerequisites must be settled decisions; the decision becomes part of the frontier and must not be asked before its prerequisites are answered. '
+      + 'Pass 2 to 4 choices in `options` to render a multi-option card (the recommended answer must be the first choice and is marked 推荐); omit `options` for the single-option card fallback.',
     parameters: {
       session_id: { type: 'string', required: true },
       question_id: { type: 'string', required: true, description: 'Stable decision id, e.g. "scope".' },
       question: { type: 'string', required: true },
-      recommendation: { type: 'string', required: true, description: 'The agent-recommended answer the user can accept.' },
+      recommendation: { type: 'string', required: true, description: 'The agent-recommended answer the user can accept; must be the first entry of `options` when provided.' },
+      options: { type: 'array', items: { type: 'string' }, description: 'Optional 2-4 choices for a multi-option card; the first entry is the recommended answer.' },
       prerequisites: { type: 'array', items: { type: 'string' }, description: 'Ids of decisions that must be answered first.' },
     },
     output: {
@@ -123,7 +199,7 @@ export function registerGrillTools(ctx: Context, config: GrillToolsConfig): void
       },
       render,
     },
-    async execute(args: { session_id: string; question_id: string; question: string; recommendation: string; prerequisites?: string[] }, exec: GrillExecContext) {
+    async execute(args: { session_id: string; question_id: string; question: string; recommendation: string; options?: string[]; prerequisites?: string[] }, exec: GrillExecContext) {
       const stateRoot = stateRootOf(exec)
       return withSessionLock(`${stateRoot}\u0000${args.session_id}`, async () => {
         const session = requireSession(await readSession(stateRoot, args.session_id), args.session_id)
@@ -132,6 +208,7 @@ export function registerGrillTools(ctx: Context, config: GrillToolsConfig): void
           question: args.question,
           recommendation: args.recommendation,
           prerequisites: args.prerequisites,
+          options: args.options,
         })
         await writeSession(stateRoot, updated)
         return { session_id: updated.id, question_id: args.question_id, frontier: frontierOf(updated).map(decisionSummary) }
@@ -281,4 +358,137 @@ export function registerGrillTools(ctx: Context, config: GrillToolsConfig): void
       })
     },
   }))
+
+  ctx.tools.register(defineTool({
+    name: 'grill_ask',
+    description: 'Ask the user through the DSH question-card UI, the only allowed presentation for grill rounds. '
+      + 'With an open frontier it renders every frontier decision as a card (the recommended answer is the first option, '
+      + 'marked 推荐, plus a custom-answer field) and writes the recorded answers into the design tree automatically. '
+      + 'With an empty frontier and a boundary it renders a settle-confirmation card and freezes the boundary on approval. '
+      + 'In environments without a question-card UI it fails with a user-questions-unavailable error; then ask in plain text '
+      + 'and record answers with grill_answer instead.',
+    parameters: {
+      session_id: { type: 'string', required: true },
+      boundary: { type: 'string', description: 'Explicit boundary spec to confirm once the frontier is empty; settles the session on approval.' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          session_id: { type: 'string', required: true },
+          status: { type: 'string', required: true },
+          answers: { type: 'array', required: true },
+          frontier: { type: 'array', required: true },
+          remaining: { type: 'integer', required: true },
+          boundary: { type: 'string' },
+          modification: { type: 'string' },
+        },
+      },
+      render,
+    },
+    async execute(args: { session_id: string; boundary?: string }, exec: GrillExecContext) {
+      const stateRoot = stateRootOf(exec)
+      return withSessionLock(`${stateRoot}\u0000${args.session_id}`, async () => {
+        const session = requireSession(await readSession(stateRoot, args.session_id), args.session_id)
+        if (session.status !== 'open') {
+          throw new Error(`session is ${session.status}; only open sessions accept questions`)
+        }
+        const frontier = frontierOf(session)
+        if (frontier.length > 0) {
+          const answer = await askViaCards(ctx, exec, frontier.map(decision => ({
+            id: decision.id,
+            question: decision.question,
+            header: decision.id,
+            options: cardOptionsOf(decision),
+          })))
+          let updated = session
+          const recorded: { id: string; answer: string }[] = []
+          for (const item of answer.answers) {
+            if (!frontier.some(decision => decision.id === item.id)) continue
+            const text = cardAnswerText(item)
+            if (text === '') continue // skipped: the decision stays on the frontier
+            updated = answerDecision(updated, item.id, text)
+            recorded.push({ id: item.id, answer: text })
+          }
+          if (updated !== session) await writeSession(stateRoot, updated)
+          const next = frontierOf(updated)
+          appendGrillEvent(exec.agent, 'grill-me/frontier-asked', {
+            sessionId: updated.id,
+            answers: recorded.map(item => ({ questionId: item.id, answer: item.answer })),
+            remaining: next.length,
+          })
+          return {
+            session_id: updated.id,
+            status: updated.status,
+            answers: recorded,
+            frontier: next.map(decisionSummary),
+            remaining: next.length,
+          }
+        }
+        const boundary = (args.boundary ?? '').trim()
+        if (boundary === '') {
+          return { session_id: session.id, status: session.status, answers: [], frontier: [], remaining: 0 }
+        }
+        const verdict = await askViaCards(ctx, exec, [{
+          id: SETTLE_QUESTION_ID,
+          question: '确认边界规格？',
+          detail: boundary,
+          options: [{ label: `${SETTLE_CONFIRM_LABEL} (Recommended)` }, { label: SETTLE_DECLINE_LABEL }],
+        }])
+        const settleAnswer = verdict.answers[0]
+        const confirmed = settleAnswer !== undefined && cardAnswerText(settleAnswer) === SETTLE_CONFIRM_LABEL
+        if (confirmed) {
+          const updated = settleSession(session, boundary)
+          await writeSession(stateRoot, updated)
+          appendGrillEvent(exec.agent, 'grill-me/session-settled', { sessionId: updated.id, boundary })
+          return {
+            session_id: updated.id,
+            status: updated.status,
+            answers: [],
+            frontier: [],
+            remaining: 0,
+            boundary,
+          }
+        }
+        return {
+          session_id: session.id,
+          status: session.status,
+          answers: [],
+          frontier: [],
+          remaining: 0,
+          modification: settleAnswer?.custom ?? '',
+        }
+      })
+    },
+  }))
+}
+
+/**
+ * Render one question batch through the DSH question-card UI. The card is
+ * capability-keyed, so any caller of `ctx.userQuestions.ask()` — not just the
+ * preset-composed `ask_user_question` tool — gets the identical web-GUI card.
+ */
+async function askViaCards(
+  ctx: Context,
+  exec: GrillExecContext,
+  questions: AskUserQuestionItem[],
+): Promise<AskUserQuestionAnswer> {
+  const service = (ctx as { userQuestions?: Context['userQuestions'] }).userQuestions
+  if (service === undefined) {
+    throw new Error('grill_ask unavailable: no user-questions service (user-questions-unavailable); ask in plain text and record answers with grill_answer')
+  }
+  try {
+    return await service.ask({
+      questions,
+      ...exec.agent !== undefined ? { agent: exec.agent } : {},
+      signal: exec.signal,
+    })
+  } catch (error) {
+    const code = (error as { code?: string }).code
+    if (code === 'NO_PROVIDER') {
+      throw new Error('grill_ask unavailable: no user-questions provider (user-questions-unavailable); ask in plain text and record answers with grill_answer')
+    }
+    throw error
+  }
 }

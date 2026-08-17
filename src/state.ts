@@ -30,6 +30,19 @@ export function prereqBlockers(session: GrillSession, decisionId: string): strin
   return decision?.prerequisites.filter(prerequisite => !answered.has(prerequisite)) ?? []
 }
 
+/** Validate the optional multi-option list; returns the trimmed choices or undefined. */
+export function normalizeOptions(recommendation: string, options: string[] | undefined): string[] | undefined {
+  if (options === undefined) return undefined
+  const cleaned = options.map(option => option.trim()).filter(option => option !== '')
+  if (cleaned.length < 2 || cleaned.length > 4) {
+    throw new Error(`decision options must have 2 to 4 choices, got ${options.length}`)
+  }
+  if (cleaned[0] !== recommendation.trim()) {
+    throw new Error('the first option must be the recommended answer')
+  }
+  return cleaned
+}
+
 export function addDecision(
   session: GrillSession,
   input: Omit<GrillDecision, 'prerequisites' | 'answer' | 'answeredAt'> & { prerequisites?: string[] },
@@ -47,11 +60,13 @@ export function addDecision(
   }
   const blockers = prerequisites.filter(prerequisite => !answeredIds(session).has(prerequisite))
   if (blockers.length > 0) throw new Error(`prerequisites not settled: ${blockers.join(', ')}`)
+  const options = normalizeOptions(input.recommendation, input.options)
   const next: GrillDecision = {
     id: input.id,
     question: input.question,
     recommendation: input.recommendation,
     prerequisites,
+    ...options !== undefined ? { options } : {},
   }
   const decisions = existing
     ? session.decisions.map(decision => decision.id === input.id ? next : decision)

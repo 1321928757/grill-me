@@ -21,7 +21,7 @@ pnpm verify
 
 覆盖内容：
 
-- `verify.mjs`：打包契约（patch name == package name、files 含 lib/patch、publishConfig public、peer 全 optional）、frontier 计算、前置门禁、冻结语义、settle/archive 迁移、session.json 往返与归档。
+- `verify.mjs`：打包契约（patch name == package name、files 含 lib/patch、publishConfig public、peer 全 optional）、frontier 计算、前置门禁、冻结语义、`options` 归一（2~4、非空、首项为推荐）、settle/archive 迁移、session.json 往返与归档。
 - `lifecycle-verify.mjs`：用编译后的工具定义驱动完整生命周期，断言会话事件；并验证 `/grill-me` 命令注册（commands 服务存在/缺席）、steer 载荷为字面命令行、裸命令行为与 dispose 清理。
 - `stress-verify.mjs`：确定性并发与隔离矩阵（重复 begin、未知会话、双会话隔离、并发回答、迟到写入、重复 archive）。
 - `verify:skill`：skill 镜像一致。
