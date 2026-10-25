@@ -9,7 +9,7 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { snapshotJsonValue } from '@deepseek-ai/dsh-session'
+import { snapshotJsonValue } from '@deepseek-ai/dsh-util-values'
 import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
 import { registerGrillTools } from '../lib/tools.js'
 import { registerGrillDocsTools } from '../lib/docs.js'

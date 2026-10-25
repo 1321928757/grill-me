@@ -16,8 +16,8 @@ src/
 ├── docs.ts           # grill_docs 工具族（read/update）+ domain-modeling 纯规则（ADR 编号/CONTEXT-FORMAT/多上下文）
 ├── state.ts          # 设计树纯规则 + session.json 持久化 + 会话锁
 ├── types.ts          # GrillDecision / GrillSession / GrillStatus
-├── event-types.ts    # SessionEventMap 合并（零 import）
-└── events.ts         # grill-me/* 事件发射（边界转换 + 降级）
+├── event-types.ts    # PluginRecordMap 合并（仅类型；记录名 plugin:grill-me/*）
+└── events.ts         # plugin:grill-me/* 记录发射（appendPluginRecord + 降级）
 scripts/
 ├── verify.mjs            # 打包契约 + 纯规则（含 grill-with-docs 规则）+ 落盘/归档
 ├── lifecycle-verify.mjs  # 工具生命周期 + 卡片流 + grill_docs 工具 + 事件断言 + 命令验证
@@ -59,7 +59,7 @@ scripts/
 - **纯规则**（`verify.mjs` 覆盖）：`adrSlug`（标题折叠为文件名段，空标题回退 `decision`）、`nextAdrNumber`（扫描最高 `NNNN-` 前缀 +1，跳过非 ADR 文件）、`adrFileName`（`000N-slug.md`）、`renderAdr`（1-3 句正文 + 可选 status frontmatter / considered / consequences）、`detectLayout`（CONTEXT-MAP.md 存在 → multi，否则 single）、`renderContext` / `groupTerms`（CONTEXT-FORMAT：标题 + 描述 + `## Language` + 可选 `###` 分组 + `_Avoid_`）、`upsertTerm`（更新既有术语定义、向既有 `## Language` 追加、缺失时补建 `## Language` 节）。
 - **工具**：
   - `grill_docs_read(session_id, scope?)`：读文档根下的 CONTEXT.md / CONTEXT-MAP.md / docs/adr/ 与下一个 ADR 编号；scope ∈ `context | adr | map | all`；返回 lossless JSON（缺失文件不返回对应键）。
-  - `grill_docs_update(...)`：kind=term 写 CONTEXT.md（惰性建文件、同术语覆盖、`context` 参数定位多上下文子路径）；kind=adr 写 `docs/adr/000N-*.md`（编号自动递增）；需要 open 会话且 `docsEnabled`；每次写入发射 `grill-me/docs-updated` 事件（kind/path/scope）。
+  - `grill_docs_update(...)`：kind=term 写 CONTEXT.md（惰性建文件、同术语覆盖、`context` 参数定位多上下文子路径）；kind=adr 写 `docs/adr/000N-*.md`（编号自动递增）；需要 open 会话且 `docsEnabled`；每次写入发射 `plugin:grill-me/docs-updated` 事件（kind/path/scope）。
 - **文档根**：`join(workspace, docsDir)`，默认工作区根；`context` 参数在文档根下追加子路径（如 `src/ordering`）。
 
 ## 设计树模型
@@ -93,9 +93,10 @@ scripts/
 
 ## 事件
 
-- `grill-me/session-created`、`decision-answered`、`frontier-asked`（含本次答案与 remaining）、`session-settled`、`session-archived`、`docs-updated`（grill_docs_update 写入时发射，含 kind/path/scope）。
-- `event-types.ts` 只做 `declare module` 合并，零运行时 import。
-- 发射时 `session.append` 是泛型方法，跨边界做受控类型转换；事件 append 失败只降级警告，磁盘状态不受影响。
+- 记录名遵循 DSH 0.2 的外部记录语法 `plugin:<owner>/<record>`，六条：`plugin:grill-me/session-created`、`plugin:grill-me/decision-answered`、`plugin:grill-me/frontier-asked`（含本次答案与 remaining）、`plugin:grill-me/session-settled`、`plugin:grill-me/session-archived`、`plugin:grill-me/docs-updated`（grill_docs_update 写入时发射，含 kind/path/scope）。
+- `event-types.ts` 用 `declare module '@deepseek-ai/dsh-session/types'` 合并 `PluginRecordMap`（不再是 `SessionEventMap`），零运行时 import；`GrillEventMap` 同时是记录名与 payload 的单一来源。
+- 发射走 `appendPluginRecord(session, type, data)`：它只在类型声明于 `PluginRecordMap` 时可用，落盘时自动带 `ignorable: true`，所以不认识该记录的宿主构建会保留并跳过，不会污染 `SessionEventMap` 与已发布的持久化 schema。
+- `events.ts` 通过命名空间 import 读取 `Session` 与 `appendPluginRecord` 并做特性检测：缺失 `appendPluginRecord` 的旧宿主不会在模块链接期炸掉整个插件。真实 `Session` 实例走 `appendPluginRecord`，离线 verify 桩件、其它宿主或无该 API 时降级到 `session.append`。任何发射失败都只吞掉，磁盘状态不受影响。
 
 ## 验证
 

@@ -55,7 +55,7 @@ function docsUsageSectionText(): string {
 3. When a term crystallizes, call grill_docs_update with kind=term: one canonical term, a one-two sentence definition of what it IS, an optional _Avoid_ list, and an optional grouping section. Update CONTEXT.md inline as terms resolve — do not batch them.
 4. Offer ADRs sparingly with grill_docs_update kind=adr only when ALL three hold: hard to reverse, surprising without context, and the result of a real trade-off. Use the next sequential number (0001, 0002, ...) that grill_docs_read reports; the body is a 1-3 sentence summary plus optional status/considered/consequences.
 5. Challenge conflicting or fuzzy terms immediately, stress-test domain relationships with concrete scenarios, and cross-reference claims against the code — then persist the resolution with grill_docs_update.
-6. The disk is the source of truth: every grill_docs_update writes CONTEXT.md or docs/adr/000N-*.md under the workspace docs root and records a grill-me/docs-updated event. Never hand-edit those files with other tools during a grill-with-docs session.`
+6. The disk is the source of truth: every grill_docs_update writes CONTEXT.md or docs/adr/000N-*.md under the workspace docs root and records a plugin:grill-me/docs-updated event. Never hand-edit those files with other tools during a grill-with-docs session.`
 }
 
 export function apply(ctx: Context, config: Config): void {

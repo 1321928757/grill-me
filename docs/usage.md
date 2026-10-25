@@ -14,7 +14,7 @@
 | `ctx.commands` 注册表 | 注册 `/grill-me` 宿主命令（GUI "/" 菜单可见、客户端拦截） |
 | 文件系统 | 团队状态持久化在 `<workspace>/.grill-me/<sessionId>/session.json`，归档在 `<workspace>/.grill-me/archive/` |
 
-数据链路：命令/工具执行 → 磁盘状态（真相源）→ 会话日志事件（尽力而为的审计记录）。
+数据链路：命令/工具执行 → 磁盘状态（真相源）→ 会话日志的 `plugin:grill-me/*` 记录（尽力而为的审计记录）。
 
 ### 提问呈现
 
@@ -83,7 +83,7 @@
 3. 术语结晶即用 `grill_docs_update`（kind=term）内联更新 CONTEXT.md：一个规范词、一两句"是什么"的定义、可选 `_Avoid_` 列表与分组；不批量。
 4. ADR 只在三条件全真时用 `grill_docs_update`（kind=adr）提供：难逆转 / 无上下文会惊讶 / 真实权衡；编号用 `grill_docs_read` 报告的下一个序号。
 5. 立即挑战冲突或模糊术语、用具体场景压力测试领域关系、与代码交叉引用，然后用 `grill_docs_update` 固化。
-6. 磁盘是真相源：每次 `grill_docs_update` 写 CONTEXT.md 或 `docs/adr/000N-*.md` 并记录 `grill-me/docs-updated` 事件；grill-with-docs 会话内不得用其他工具手改这些文件。
+6. 磁盘是真相源：每次 `grill_docs_update` 写 CONTEXT.md 或 `docs/adr/000N-*.md` 并记录 `plugin:grill-me/docs-updated` 事件；grill-with-docs 会话内不得用其他工具手改这些文件。
 
 ## 配置
 
@@ -106,13 +106,29 @@
 | `docsDir` | `''` | 文档根相对工作区；`''` = 工作区根 |
 | `optionCount` | `3` | 每题问题卡片至少携带的选项数（最小 3、无上限） |
 
+## DSH 版本兼容
+
+本插件按 DSH **0.2.1-rc.1** 的能力接缝实现：`engines.dsh` 声明 `>=0.2.1-rc.1 <0.3.0`，`dsh.compatibility.dshReleases` 标注 0.2.1-rc.1 为 compatible，peer 全部对齐 `^0.2.1-rc.1`（cordis `^4.0.5`、schemastery `^3.18.2`）。
+
+| 接缝 | 0.2.1-rc.1 契约 | 本插件的用法 |
+| --- | --- | --- |
+| `defineTool` / `output` | `output.render(exec.arguments, value)`——**第一个参数是调用入参** | `render(_args, value)`，只把返回值投影给模型 |
+| `ctx.tools` / `ctx.systemPrompt.section` | `section({ name, order, text })` | 协议段 order 118 / 119 |
+| `ctx.commands` | `register({ name, description, input, handler })`，handler 返回 `{ kind, text }` | `agent.steer(createUserMessage(...))` 与 `dsh-api-session-controller` 同款 |
+| `ctx.userQuestions` | `ask({ questions, agent, signal })`；带 live root agent 才路由 Web 卡片 | 传 `exec.agent`；`NO_PROVIDER` 时回退纯文本 |
+| `agent.session.header.cwd` | `SessionHeader.cwd`（绝对路径校验） | 工作区根 = 落盘根 |
+| 会话日志记录 | 外部记录走 `plugin:<owner>/<record>` + `PluginRecordMap` + `appendPluginRecord`（自动 `ignorable: true`） | 六条 `plugin:grill-me/*` 记录 |
+| `JsonValue` / `snapshotJsonValue` | 已迁到 `@deepseek-ai/dsh-util-values` | 从该包 import |
+
+升级 DSH 时的自查清单：先跑 `pnpm typecheck` 让接缝漂移在类型层暴露；再确认 `output.render` 仍是 `(args, value)`、`PluginRecordMap` 仍接受外部声明、`ctx.userQuestions.ask` 仍要求 live root agent。
+
 ## 已知限制
 
 - 一个 query 对应一个会话；同名 query 需先归档旧会话。
 - 状态为文件级持久化，多进程同时操作同一会话不保证一致（同一 dsh 进程内已用锁串行化）。
 - 提问卡片依赖 `ctx.userQuestions` 能力（DSH base bundle 已组合）与 Web GUI 的 UI provider；headless 下 `grill_ask` 报 `user-questions-unavailable`，协议回退文本（见第 7 条）。
 - 模型可能不严格走工具仪式（如忘记 settle 或 update）；面板与协议以 `grill_frontier` / 落盘状态为准。
-- 会话事件为尽力而为的审计记录（外部插件事件类型可能被宿主运行时的类型白名单拒绝）；磁盘状态是执行真相源，`tool/call` 事件保留完整调用链。
+- 会话记录为尽力而为的审计（`plugin:grill-me/*` 带 `ignorable: true`，宿主不认识时保留并跳过）；磁盘状态是执行真相源，`tool/call` 事件保留完整调用链。
 
 ## 验证
 

@@ -13,7 +13,7 @@ Grill the user through design-tree frontier rounds until a query's boundaries ar
 | Frontier rounds | Only ask decisions whose prerequisites are settled, all in one round, each with a recommended answer marked 推荐 |
 | Self-served facts | The agent looks up what it can from the environment; only decisions belong to the user |
 | Boundary spec | Once the frontier is empty and the user confirms via plain text, the agent settles an explicit boundary before acting |
-| Persistence and audit | Trees persist under `.grill-me/`; archives keep full history; session events replay |
+| Persistence and audit | Trees persist under `.grill-me/`; archives keep full history; `plugin:grill-me/*` records stay in the session log |
 
 ## How it works
 
@@ -27,7 +27,7 @@ Grill the user through design-tree frontier rounds until a query's boundaries ar
 | `ctx.commands` registry | Registers the `/grill-me` host command (visible in the GUI "/" menu, intercepted by the client) |
 | Filesystem | State persists at `<workspace>/.grill-me/<sessionId>/session.json` |
 
-Data flow: tool execution → disk state (source of truth) → session log events (audit/replay).
+Data flow: tool execution → disk state (source of truth) → `plugin:grill-me/*` records in the session log (audit).
 
 ## Tool reference
 
@@ -45,13 +45,8 @@ Data flow: tool execution → disk state (source of truth) → session log event
 
 ## Install
 
-> Requires an existing [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness).
-
-```sh
-dsh plugin --profile web add @nanmicoder/dsh-grill-me
-```
-
-Build from source:
+> Requires DeepSeek Harness **0.2.1-rc.1** (`engines.dsh: ">=0.2.1-rc.1 <0.3.0"`) and Node `^22.19.0 || >=24`.
+> This package is not published to npm yet; install it from source.
 
 ```sh
 git clone https://github.com/shironghe/grill-me.git

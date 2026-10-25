@@ -32,7 +32,8 @@ function workspaceOf(exec: DocsExecContext): string {
   return workspace
 }
 
-function render(value: unknown): { type: 'text'; text: string }[] {
+/** See `render` in tools.ts: DSH calls `output.render(args, value)`. */
+function render(_args: unknown, value: unknown): { type: 'text'; text: string }[] {
   return [{ type: 'text', text: JSON.stringify(value) }]
 }
 
@@ -354,7 +355,7 @@ export function registerGrillDocsTools(ctx: Context, config: DocsToolsConfig): v
           }, { name: args.name, description: args.description })
           await mkdir(targetRoot, { recursive: true })
           await writeFile(contextPath, updated, 'utf8')
-          appendGrillEvent(exec.agent, 'grill-me/docs-updated', {
+          appendGrillEvent(exec.agent, 'plugin:grill-me/docs-updated', {
             sessionId: session.id,
             kind: 'term',
             path: contextPath,
@@ -382,7 +383,7 @@ export function registerGrillDocsTools(ctx: Context, config: DocsToolsConfig): v
             considered: args.considered,
             consequences: args.consequences,
           }), 'utf8')
-          appendGrillEvent(exec.agent, 'grill-me/docs-updated', {
+          appendGrillEvent(exec.agent, 'plugin:grill-me/docs-updated', {
             sessionId: session.id,
             kind: 'adr',
             path: join(adrDir, fileName),

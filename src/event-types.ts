@@ -32,13 +32,31 @@ export interface GrillDocsUpdatedData {
   readonly scope: string
 }
 
+/**
+ * The audit records this plugin writes.
+ *
+ * Since DSH 0.2.0 an out-of-tree plugin no longer declares its records on
+ * `SessionEventMap`: released session events are owned by the harness, and the
+ * reserved external namespace is the `plugin:` record grammar. Names therefore
+ * read `plugin:<owner>/<record>` and the payloads live on `PluginRecordMap`,
+ * which keeps them out of the released persistence schemas while a build that
+ * does not know them retains and skips them (`ignorable: true`).
+ */
+export interface GrillEventMap {
+  'plugin:grill-me/session-created': GrillSessionCreatedData
+  'plugin:grill-me/decision-answered': GrillDecisionAnsweredData
+  'plugin:grill-me/frontier-asked': GrillFrontierAskedData
+  'plugin:grill-me/session-settled': GrillSessionSettledData
+  'plugin:grill-me/session-archived': GrillSessionArchivedData
+  'plugin:grill-me/docs-updated': GrillDocsUpdatedData
+}
+
+/** One record name this plugin may append. */
+export type GrillEventType = keyof GrillEventMap
+
+/** Payload of one record name. */
+export type GrillEventData<K extends GrillEventType> = GrillEventMap[K]
+
 declare module '@deepseek-ai/dsh-session/types' {
-  interface SessionEventMap {
-    'grill-me/session-created': GrillSessionCreatedData
-    'grill-me/decision-answered': GrillDecisionAnsweredData
-    'grill-me/frontier-asked': GrillFrontierAskedData
-    'grill-me/session-settled': GrillSessionSettledData
-    'grill-me/session-archived': GrillSessionArchivedData
-    'grill-me/docs-updated': GrillDocsUpdatedData
-  }
+  interface PluginRecordMap extends GrillEventMap {}
 }

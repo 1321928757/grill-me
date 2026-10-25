@@ -33,7 +33,7 @@ grill-me 插件含两个命令：`/grill-me`（纯拷打）与 `/grill-with-docs
 - `/grill-with-docs` 的文档工具族（`src/docs.ts`）：
   - `grill_docs_read`：读 CONTEXT.md / CONTEXT-MAP.md / docs/adr/ 现状与下一个 ADR 编号，避免重复与猜测。
   - `grill_docs_update`：kind=term 写 CONTEXT.md 术语（CONTEXT-FORMAT：opinionated、`_Avoid_`、紧凑定义、惰性建文件）；kind=adr 写 `docs/adr/000N-slug.md`（编号扫描最高 +1、三条件才提供）。
-  - 磁盘为真相源；每次写入发射 `grill-me/docs-updated` 事件；写入需 open 会话且 `docsEnabled` 为 true；文档落点默认工作区根（`docsDir` 可覆盖）。
+  - 磁盘为真相源；每次写入发射 `plugin:grill-me/docs-updated` 事件；写入需 open 会话且 `docsEnabled` 为 true；文档落点默认工作区根（`docsDir` 可覆盖）。
 
 ## 3. 验证
 

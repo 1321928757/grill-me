@@ -11,7 +11,7 @@
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { snapshotJsonValue } from '@deepseek-ai/dsh-session'
+import { snapshotJsonValue } from '@deepseek-ai/dsh-util-values'
 import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
 import { GRILL_COMMAND, GRILL_DOCS_COMMAND, grillDocsLine, grillLine, registerGrillCommand, registerGrillDocsCommand } from '../lib/command.js'
 import { registerGrillTools } from '../lib/tools.js'
@@ -77,6 +77,15 @@ async function call(name, args) {
   const violations = validateJsonSchemaValue(definition.output.schema, detached, 'value')
   if (violations.length > 0) {
     throw new Error(`tool ${name} output violates its schema: ${violations.join('; ')}`)
+  }
+  // DSH renders with `output.render(exec.arguments, value)`. The model only
+  // sees this content, so it must project the RESULT and never the call
+  // arguments — the 0.0.1 build shipped `render(value)`, which handed the
+  // model its own arguments and hid every frontier.
+  const rendered = definition.output.render(args, result)
+  const text = rendered.map(block => block.text).join('')
+  if (text !== JSON.stringify(detached)) {
+    throw new Error(`tool ${name} renders something other than its result: ${text.slice(0, 120)}`)
   }
   return result
 }
@@ -169,10 +178,10 @@ try {
   check('live reads no longer see the session', await readSession(stateRoot, begun.session_id) === undefined)
   const archivedSession = await readFile(join(stateRoot, 'archive', begun.session_id, 'session.json'), 'utf8')
   check('archived tree keeps the boundary', archivedSession.includes('MVP for US users only'))
-  check('session-created event emitted', events.some(event => event.type === 'grill-me/session-created'))
-  check('decision-answered events emitted', events.filter(event => event.type === 'grill-me/decision-answered').length === 2)
-  check('session-settled event emitted', events.some(event => event.type === 'grill-me/session-settled'))
-  check('session-archived event emitted', events.some(event => event.type === 'grill-me/session-archived'))
+  check('session-created event emitted', events.some(event => event.type === 'plugin:grill-me/session-created'))
+  check('decision-answered events emitted', events.filter(event => event.type === 'plugin:grill-me/decision-answered').length === 2)
+  check('session-settled event emitted', events.some(event => event.type === 'plugin:grill-me/session-settled'))
+  check('session-archived event emitted', events.some(event => event.type === 'plugin:grill-me/session-archived'))
 } finally {
   await rm(workspace, { recursive: true, force: true })
 }
@@ -270,7 +279,7 @@ try {
   const askedOption = await callCard('grill_ask', { session_id: 'card-flow' })
   check('grill_ask records a non-first option verbatim', askedOption.answers[0]?.answer === 'EU')
   check('frontier drains after the last card answer', askedOption.remaining === 0)
-  check('frontier-asked events emitted', events.filter(event => event.type === 'grill-me/frontier-asked').length === 2)
+  check('frontier-asked events emitted', events.filter(event => event.type === 'plugin:grill-me/frontier-asked').length === 2)
 
   let settleCardRendered = false
   userQuestions.ask = async (request) => {
@@ -282,7 +291,7 @@ try {
     !settleCardRendered && boundaryText.status === 'open' && boundaryText.boundary === 'card boundary')
   const settledByText = await callCard('grill_settle', { session_id: 'card-flow', boundary: 'card boundary' })
   check('grill_settle freezes the boundary after text confirmation', settledByText.status === 'settled' && settledByText.boundary === 'card boundary')
-  check('settle confirmation emits the session-settled event', events.some(event => event.type === 'grill-me/session-settled'))
+  check('settle confirmation emits the session-settled event', events.some(event => event.type === 'plugin:grill-me/session-settled'))
 
   await callCard('grill_begin', { query: 'custom option' })
   await callCard('grill_question', {
@@ -414,7 +423,7 @@ try {
     body: 'Manual SQL because the query shapes are too unusual for an ORM.',
   })
   check('second ADR increments the number', secondAdr.number === 2 && secondAdr.path.endsWith('0002-manual-sql-over-orm.md'))
-  check('docs-updated events emitted', events.filter(event => event.type === 'grill-me/docs-updated').length === 3)
+  check('docs-updated events emitted', events.filter(event => event.type === 'plugin:grill-me/docs-updated').length === 3)
 
   await rejectedDocs('grill_docs_update', { session_id: 'missing', kind: 'term', term: 'X', definition: 'Y' }, 'grill_docs_update on an unknown session is rejected')
   await rejectedDocs('grill_docs_update', { session_id: 'docs-flow', kind: 'term', term: 'X' }, 'grill_docs_update term without a definition is rejected')

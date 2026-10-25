@@ -46,13 +46,13 @@ dsh --profile headless "/grill-me 用户想做一个'智能体系统'"
 判定成功：
 
 - `.grill-me/<sessionId>/session.json` 存在且含设计树；
-- 会话日志含 `tool/call` 的 `grill_*` 工具调用（`grill-me/*` 会话事件为尽力而为）；
+- 会话日志含 `tool/call` 的 `grill_*` 工具调用（`plugin:grill-me/*` 会话事件为尽力而为）；
 - 最终有 settled 边界规格（或按协议明确归档）。
 
 `/grill-with-docs` 任务额外核对：
 
 - 工作区出现 `CONTEXT.md`（含结晶术语）与/或 `docs/adr/000N-*.md`（编号递增）；
-- 会话日志含 `grill-me/docs-updated` 事件。
+- 会话日志含 `plugin:grill-me/docs-updated` 事件。
 
 > headless 无命令拦截，模型直接按协议段解析字面 `/grill-me` 行；web profile 则由命令 handler 拦截并 steer 同一行，行为一致。
 

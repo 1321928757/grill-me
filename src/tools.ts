@@ -1,5 +1,6 @@
 import { join } from 'node:path'
-import { defineTool, type JsonValue } from '@deepseek-ai/dsh-tools'
+import { defineTool } from '@deepseek-ai/dsh-tools'
+import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { Context } from '@deepseek-ai/cordis'
 import { appendGrillEvent } from './events.ts'
@@ -83,7 +84,13 @@ function workspaceOf(exec: GrillExecContext): string {
   return workspace
 }
 
-function render(value: unknown): { type: 'text'; text: string }[] {
+/**
+ * Project one tool result onto model-visible content.
+ *
+ * DSH calls `output.render(exec.arguments, value)`; taking the value first is
+ * the only way the model sees the result instead of its own call arguments.
+ */
+function render(_args: unknown, value: unknown): { type: 'text'; text: string }[] {
   return [{ type: 'text', text: JSON.stringify(value) }]
 }
 
@@ -166,7 +173,7 @@ export function registerGrillTools(ctx: Context, config: GrillToolsConfig): void
           updatedAt: Date.now(),
         }
         await createSession(stateRoot, session)
-        appendGrillEvent(exec.agent, 'grill-me/session-created', { sessionId: id, query: args.query })
+        appendGrillEvent(exec.agent, 'plugin:grill-me/session-created', { sessionId: id, query: args.query })
         return { session_id: id, query: args.query }
       })
     },
@@ -242,7 +249,7 @@ export function registerGrillTools(ctx: Context, config: GrillToolsConfig): void
         const updated = answerDecision(session, args.question_id, args.answer)
         await writeSession(stateRoot, updated)
         const frontier = frontierOf(updated)
-        appendGrillEvent(exec.agent, 'grill-me/decision-answered', {
+        appendGrillEvent(exec.agent, 'plugin:grill-me/decision-answered', {
           sessionId: updated.id,
           questionId: args.question_id,
           answer: args.answer,
@@ -320,7 +327,7 @@ export function registerGrillTools(ctx: Context, config: GrillToolsConfig): void
         const session = requireSession(await readSession(stateRoot, args.session_id), args.session_id)
         const updated = settleSession(session, args.boundary)
         await writeSession(stateRoot, updated)
-        appendGrillEvent(exec.agent, 'grill-me/session-settled', { sessionId: updated.id, boundary: args.boundary })
+        appendGrillEvent(exec.agent, 'plugin:grill-me/session-settled', { sessionId: updated.id, boundary: args.boundary })
         return { session_id: updated.id, status: updated.status, boundary: updated.boundary ?? '' }
       })
     },
@@ -351,7 +358,7 @@ export function registerGrillTools(ctx: Context, config: GrillToolsConfig): void
         const updated = archiveStatus(session)
         if (updated.status !== session.status) await writeSession(stateRoot, updated)
         await archiveSession(stateRoot, updated.id)
-        appendGrillEvent(exec.agent, 'grill-me/session-archived', { sessionId: updated.id, reason: args.reason })
+        appendGrillEvent(exec.agent, 'plugin:grill-me/session-archived', { sessionId: updated.id, reason: args.reason })
         return { session_id: updated.id, status: updated.status }
       })
     },
@@ -412,7 +419,7 @@ export function registerGrillTools(ctx: Context, config: GrillToolsConfig): void
           }
           if (updated !== session) await writeSession(stateRoot, updated)
           const next = frontierOf(updated)
-          appendGrillEvent(exec.agent, 'grill-me/frontier-asked', {
+          appendGrillEvent(exec.agent, 'plugin:grill-me/frontier-asked', {
             sessionId: updated.id,
             answers: recorded.map(item => ({ questionId: item.id, answer: item.answer })),
             remaining: next.length,

@@ -13,7 +13,7 @@
 | frontier 轮次 | 每轮只问前置已决的问题，一次问完，推荐答案带「推荐」徽标 |
 | 事实自主查询 | agent 自己查环境事实，不反问用户可查的信息 |
 | 边界规格 | frontier 清空且用户确认后输出显式 boundary，之后才执行 |
-| 持久化与审计 | 设计树落盘 `.grill-me/`，归档保留完整历史，会话事件可重放 |
+| 持久化与审计 | 设计树落盘 `.grill-me/`，归档保留完整历史，`plugin:grill-me/*` 记录留在会话日志 |
 
 ## 工作原理
 
@@ -27,7 +27,7 @@
 | `ctx.commands` 注册表 | 注册 `/grill-me` 宿主命令（GUI "/" 菜单可见、客户端拦截） |
 | 文件系统 | 状态持久化在 `<workspace>/.grill-me/<sessionId>/session.json` |
 
-数据链路：工具执行 → 磁盘状态（真相源）→ 会话日志事件（审计/重放）。
+数据链路：工具执行 → 磁盘状态（真相源）→ 会话日志的 `plugin:grill-me/*` 记录（审计）。
 
 ## 工具一览
 
@@ -45,13 +45,8 @@
 
 ## 安装
 
-> 使用前请确保已安装 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)。
-
-```sh
-dsh plugin --profile web add @nanmicoder/dsh-grill-me
-```
-
-从源码构建：
+> 需要 DeepSeek Harness **0.2.1-rc.1**（`engines.dsh: ">=0.2.1-rc.1 <0.3.0"`），Node `^22.19.0 || >=24`。
+> 本包尚未发布到 npm，请从源码安装。
 
 ```sh
 git clone https://github.com/shironghe/grill-me.git

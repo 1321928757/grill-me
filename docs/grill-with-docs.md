@@ -152,7 +152,7 @@ _Avoid_: Bill, payment request
 
 - `term`：读取（或惰性创建）目标 `CONTEXT.md`，按 CONTEXT-FORMAT 更新 `## Language` 节；同名术语覆盖其定义与 `_Avoid_`，`_Avoid_` 与既有定义冲突时返回冲突提示由协议处理（挑战术语）。
 - `adr`：扫描 `docs/adr/` 最高编号 +1，写 `000N-<slug>.md`；slug 由 title 折叠生成（sanitize 规则复用 `sanitizeKey` 思路）。
-- 所有写入经事件 `grill-me/docs-updated` 记录（kind/path/scope），磁盘为真相源。
+- 所有写入经事件 `plugin:grill-me/docs-updated` 记录（kind/path/scope），磁盘为真相源。
 
 ## 8. 验证
 
