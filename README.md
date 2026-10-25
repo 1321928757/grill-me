@@ -1,5 +1,7 @@
 # dsh-grill-me
 
+**English** | [简体中文](./README_ZH.md)
+
 Grill the user through design-tree frontier rounds until a query's boundaries are explicit, then proceed.
 
 `dsh-grill-me` is a DeepSeek Harness plugin: the user invokes `/grill-me` (the only entry — there is no automatic trigger), and the agent then builds a design tree, asks the whole frontier in one round through `grill_ask` rendered as DSH question cards with recommended answers, and only executes after the user confirms an explicit boundary spec.
@@ -14,6 +16,22 @@ Grill the user through design-tree frontier rounds until a query's boundaries ar
 | Self-served facts | The agent looks up what it can from the environment; only decisions belong to the user |
 | Boundary spec | Once the frontier is empty and the user confirms via plain text, the agent settles an explicit boundary before acting |
 | Persistence and audit | Trees persist under `.grill-me/`; archives keep full history; `plugin:grill-me/*` records stay in the session log |
+
+## Why this plugin, not just the original skill?
+
+`dsh-grill-me` is a port, not an invention. The method comes from [`grilling`](https://github.com/mattpocock/skills/blob/main/skills/productivity/grilling/SKILL.md) in `mattpocock/skills`, where `grill-me` and `grill-with-docs` are one-line skills that start a session. The design tree, the frontier, rounds, "facts are the agent's job, decisions are yours", and the closing gate are that skill's ideas, unchanged.
+
+What differs is who enforces them:
+
+| The original skill | This plugin |
+| --- | --- |
+| A prompt asks for frontier rounds; nothing stops a model from asking one question at a time, skipping ahead, or answering its own questions | `grill_question` refuses a decision whose prerequisites are unanswered, so it cannot join the frontier early; `grill_settle` refuses while the frontier is non-empty; answered decisions are frozen |
+| Questions arrive as a numbered Markdown list; you answer "1 yes, 2 the second option" | Questions arrive as DSH question cards: at least three options, the recommendation first behind the 推荐 badge, plus a custom-answer field and skip |
+| Stateless — it writes nothing, and the tree dies with the conversation | The tree is a file under `.grill-me/`: it survives compaction, archives, and stays auditable afterwards |
+
+That is the trade: the plugin gives up the skill's portability in exchange for guarantees that still hold when the model is in a hurry.
+
+**Reach for the original instead when** you are outside DSH (Claude Code, Codex, a mobile client), you have no workspace, the subject is not code (a business call, a piece of writing, what to do next), or the question needs several paragraphs of context — prose probes deeper than option labels. Install `grilling` plus `grill-me` from `mattpocock/skills` for those cases.
 
 ## How it works
 
@@ -46,7 +64,7 @@ Data flow: tool execution → disk state (source of truth) → `plugin:grill-me/
 ## Install
 
 > Requires DeepSeek Harness **0.2.1-rc.1** (`engines.dsh: ">=0.2.1-rc.1 <0.3.0"`) and Node `^22.19.0 || >=24`.
-> This package is not published to npm yet; install it from source.
+> The package is not published to npm yet, and `lib/` is not committed, so installing straight from Git would ship an unbuilt package. Build locally, then add the directory.
 
 ```sh
 git clone https://github.com/shironghe/grill-me.git
@@ -62,6 +80,8 @@ Validate the composed profile, restart DSH, and refresh the Web UI:
 dsh --profile web --dump-config
 dsh web
 ```
+
+`--dump-config` must list a `grill-me` entry. Install into the profile you actually run (`web`, `desktop`, …); once DSH restarts, `/grill-me` shows up in the composer's `/` menu.
 
 ## Configuration
 

@@ -1,5 +1,7 @@
 # dsh-grill-me
 
+[English](./README.md) | **简体中文**
+
 一句话，让模糊 query 先过拷打，再动手。
 
 `dsh-grill-me` 是 DeepSeek Harness 插件：用户输入 `/grill-me`（唯一入口，无自动触发）后，agent 把需求建成设计树，每轮通过 `grill_ask` 把 frontier 问题以 DSH 问题卡片（框框）形式一次问完并给出推荐答案，直到用户确认边界规格后才会继续执行。
@@ -14,6 +16,22 @@
 | 事实自主查询 | agent 自己查环境事实，不反问用户可查的信息 |
 | 边界规格 | frontier 清空且用户确认后输出显式 boundary，之后才执行 |
 | 持久化与审计 | 设计树落盘 `.grill-me/`，归档保留完整历史，`plugin:grill-me/*` 记录留在会话日志 |
+
+## 为什么还要这个插件，而不是直接用原版 skill？
+
+`dsh-grill-me` 是移植，不是发明。方法论来自 `mattpocock/skills` 里的 [`grilling`](https://github.com/mattpocock/skills/blob/main/skills/productivity/grilling/SKILL.md)——那里的 `grill-me` 与 `grill-with-docs` 只是一行「调用 grilling」的包装。设计树、frontier、分轮、事实归 agent 而决策归用户、收尾门禁，全部是原版的想法，没有改动。
+
+变的是「谁来保证它被执行」：
+
+| 原版 skill | 本插件 |
+| --- | --- |
+| 靠提示词要求走 frontier 轮次；模型想一次一问、想跳过、想自己替用户答题，没有东西拦得住 | `grill_question` 拒绝前置未答的决策，使它无法提前进入 frontier；`grill_settle` 在 frontier 非空时直接报错；已答决策冻结不可改 |
+| 问题以编号 Markdown 列表下发，你回一行「1 是、2 第二个选项」 | 问题以 DSH 问题卡片下发：每题至少三个选项、推荐答案居首带「推荐」徽标，另有自定义输入与跳过 |
+| 无状态：不写任何文件，会话一关设计树就没了 | 设计树落盘在 `.grill-me/`：能跨上下文压缩存活、能归档、事后可审计 |
+
+这就是取舍：插件拿原版的可移植性，换来了「模型赶时间时依然成立」的约束。
+
+**这些情况请用原版**：你不在 DSH 里（Claude Code、Codex、手机端）、手上没有工作区、话题不是代码（商业判断、写作、下一步做什么），或者问题需要好几段上下文才说得清——文本比选项更挖得动。去 `mattpocock/skills` 装 `grilling` + `grill-me` 即可。
 
 ## 工作原理
 
@@ -46,7 +64,7 @@
 ## 安装
 
 > 需要 DeepSeek Harness **0.2.1-rc.1**（`engines.dsh: ">=0.2.1-rc.1 <0.3.0"`），Node `^22.19.0 || >=24`。
-> 本包尚未发布到 npm，请从源码安装。
+> 本包尚未发布到 npm，且构建产物 `lib/` 不入库——直接按 Git 地址安装会装到一份没编译的包。先本地构建，再添加目录。
 
 ```sh
 git clone https://github.com/shironghe/grill-me.git
@@ -62,6 +80,8 @@ dsh plugin --profile web add .
 dsh --profile web --dump-config
 dsh web
 ```
+
+`--dump-config` 里应出现 `grill-me` 条目。请装进你实际运行的那个 profile（`web`、`desktop` 等）；DSH 重启后，输入框的 `/` 菜单里能看到 `/grill-me`。
 
 ## 配置
 
